@@ -1,0 +1,37 @@
+python run_span_classification.py \
+    --experiment_code=hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine \
+    --task_name=gaiic \
+    --model_type=bert \
+    --pretrained_model_path=hfl/chinese-roberta-wwm-ext \
+    --data_dir=data/raw/ \
+    --train_input_file=train_500.txt \
+    --eval_input_file=train_500.txt \
+    --test_input_file=train_500.txt \
+    --output_dir=outputs/ \
+    --do_train --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=256 \
+    --eval_max_seq_length=256 \
+    --test_max_seq_length=256 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=1 \
+    --learning_rate=1e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=15 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.5 \
+    --negative_sampling=0.0 \
+    --max_span_length=15 \
+    --width_embedding_size=128 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --seed=42
+

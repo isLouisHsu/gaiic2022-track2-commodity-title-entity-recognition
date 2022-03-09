@@ -1,0 +1,3 @@
+[submodule "TorchBlocks"]
+	path = TorchBlocks
+	url = git@github.com:lonePatient/TorchBlocks.git
