@@ -31,7 +31,7 @@ from torch.nn import functional as F
 from torch.nn.utils.rnn import pad_sequence
 
 from transformers import (
-    BertConfig, BertPreTrainedModel, BertModel, BertTokenizerFast,
+    BertConfig, BertPreTrainedModel, BertModel, BertTokenizerFast, BertTokenizer,
     RobertaConfig, RobertaPreTrainedModel, RobertaModel, RobertaTokenizerFast,
     PreTrainedModel, AdamW,
 )
@@ -54,7 +54,7 @@ from torchblocks.utils.device import prepare_device
 from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
 from torchblocks.utils.paths import find_all_checkpoints
 from torchblocks.utils.seed import seed_everything
-
+from tokenization_bert_zh import SPACE_TOKEN, BertTokenizerZh
 
 IGNORE_INDEX = -100
 Span = NewType("Span", Tuple[int, int, str])
@@ -825,10 +825,30 @@ class ProcessExample2FeatureZh(ProcessExample2Feature):
         if stanza_nlp is not None:
             self.stanza_upos_unit2id = self.stanza_nlp.processors['pos'].vocab._vocabs['upos']._unit2id
 
+    # def _encode_text(self, text: List[str]):
+    #     # XXX: 中文预训练模型分词器基于BERT，会将句子中出现的空白符删除
+    #     tokens = [ch if ch in self.tokenizer.vocab else 
+    #         self.tokenizer.unk_token for ch in text]
+    #     inputs = self.tokenizer(
+    #         tokens,
+    #         padding="max_length",
+    #         truncation="longest_first",
+    #         max_length=self.max_sequence_length,
+    #         is_split_into_words=True,
+    #         return_tensors="pt",
+    #     )
+    #     input_length = inputs["attention_mask"].sum().item() - 2
+    #     pad_length = self.max_sequence_length - input_length - 2 - 1
+    #     inputs["offset_mapping"] = torch.tensor([
+    #         [(0, 0), ] + \
+    #         [(i, i + 1) for i in range(input_length)] + \
+    #         [(0, 0) for i in range(pad_length)]
+    #     ])
+    #     return inputs
+
     def _encode_text(self, text: List[str]):
         # XXX: 中文预训练模型分词器基于BERT，会将句子中出现的空白符删除
-        tokens = [ch if ch in self.tokenizer.vocab else 
-            self.tokenizer.unk_token for ch in text]
+        tokens = [SPACE_TOKEN if ch == " " else ch for ch in text]
         inputs = self.tokenizer(
             tokens,
             padding="max_length",
@@ -1784,7 +1804,8 @@ class Trainer(TrainerBase):
             wandb.log(metric_key_value_map)
 
 MODEL_CLASSES = {
-    "bert": (BertConfig, BertForSpanClassification, BertTokenizerFast),
+    # "bert": (BertConfig, BertForSpanClassification, BertTokenizerFast),
+    "bert": (BertConfig, BertForSpanClassification, BertTokenizerZh),
     "roberta": (RobertaConfig, RobertaForSpanClassification, RobertaTokenizerFast),
 }
 
@@ -1794,7 +1815,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine_opts.json")
+    sys.argv.append("outputs/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,

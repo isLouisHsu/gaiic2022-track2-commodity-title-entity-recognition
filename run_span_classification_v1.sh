@@ -1,4 +1,4 @@
-python run_span_classification.py \
+python run_span_classification_v1.py \
     --experiment_code=hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine \
     --task_name=gaiic \
     --model_type=bert \
@@ -7,6 +7,7 @@ python run_span_classification.py \
     --train_input_file=train_500.txt \
     --eval_input_file=train_500.txt \
     --test_input_file=train_500.txt \
+    --do_lower_case \
     --output_dir=outputs/ \
     --do_train --do_eval \
     --evaluate_during_training \
