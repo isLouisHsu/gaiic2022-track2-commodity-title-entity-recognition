@@ -2019,8 +2019,7 @@ def main(opts):
     metrics = [
         SequenceLabelingScoreEntity({label for label in data_class.get_labels() \
             if label not in ["O",]}, "micro", entity_type="all"),
-        # SequenceLabelingScoreEntity({label for label in data_class.get_labels() \
-        #     if label not in ["O",]}, "micro", entity_type="without_label"),
+        SequenceLabelingScoreEntity({"_"}, "micro", entity_type="without_label"),
     ]
     trainer = Trainer(opts=opts, model=model, metrics=metrics, logger=logger)
 
