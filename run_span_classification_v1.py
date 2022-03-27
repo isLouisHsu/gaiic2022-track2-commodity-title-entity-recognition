@@ -1917,6 +1917,7 @@ def main(opts):
     try:
         tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
     except AssertionError:
+        # XXX: AssertionError: Config has to be initialized with question_encoder and generator config
         tokenizer = tokenizer_class.from_pretrained(os.path.join(opts.pretrained_model_path, "vocab.txt"), do_lower_case=opts.do_lower_case)
     if opts.do_train or opts.do_check:
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
