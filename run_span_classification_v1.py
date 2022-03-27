@@ -38,6 +38,7 @@ from transformers import (
     PreTrainedModel, AdamW,
 )
 from transformers.file_utils import ModelOutput
+from nezha.modeling_nezha import NeZhaPreTrainedModel, NeZhaModel
 
 sys.path.append("TorchBlocks/")
 from torchblocks.callback import ProgressBar
@@ -332,76 +333,101 @@ class SpanClassificationDataset(DatasetBase):
         return batch
 
 
+# class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
+
+#     @classmethod
+#     def get_labels(cls) -> List[str]:
+#         return ["O",] + [
+#             # str(i) for i in range(55) if i not in [0, 27, 45]
+#             str(i) for i in range(55)   # TODO:
+#         ]
+
+#     def _generate_examples(self, data_path):
+#         sentence_counter = 0
+#         with open(data_path, encoding="utf-8") as f:
+#             lines = f.readlines()
+        
+#         current_words = []
+#         current_labels = []
+#         for row in lines:
+#             row = row.rstrip("\n")
+#             if row != "":
+#                 token, label = row[0], row[2:]
+#                 current_words.append(token)
+#                 current_labels.append(label)
+#             else:
+#                 if not current_words:
+#                     continue
+#                 assert len(current_words) == len(current_labels), "word len doesn't match label length"
+#                 sentence = (
+#                     sentence_counter,
+#                     {
+#                         "id": str(sentence_counter),
+#                         "tokens": current_words,
+#                         "ner_tags": current_labels,
+#                     },
+#                 )
+#                 sentence_counter += 1
+#                 current_words = []
+#                 current_labels = []
+#                 yield sentence
+
+#         # if something remains:
+#         if current_words:
+#             sentence = (
+#                 sentence_counter,
+#                 {
+#                     "id": str(sentence_counter),
+#                     "tokens": current_words,
+#                     "ner_tags": current_labels,
+#                 },
+#             )
+#             yield sentence
+
+#     def read_data(self, input_file: str) -> Any:
+#         return list(self._generate_examples(input_file))
+
+#     def create_examples(self, data: Any, data_type: str, **kwargs) -> List[Dict[str, Any]]:
+#         examples = []
+#         # TODO:
+#         if data_type == "train":
+#             data = data[:400]
+#         else:
+#             data = data[400:]
+#         get_entities = get_scheme("BIO")
+#         for (i, line) in enumerate(data):
+#             guid = f"{data_type}-{i}"
+#             tokens = line[1]["tokens"]
+#             entities = None
+#             if data_type != "test":
+#                 entities = []
+#                 for label, start, end in get_entities(line[1]["ner_tags"]):
+#                     entities.append((start, end + 1, label, tokens[start: end + 1]))
+#             examples.append(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens)))
+#         return examples
+
+
 class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
 
     @classmethod
     def get_labels(cls) -> List[str]:
         return ["O",] + [
-            # str(i) for i in range(55) if i not in [0, 27, 45]
-            str(i) for i in range(55)   # TODO:
+            str(i) for i in range(55) if i not in [0, 27, 45]
         ]
 
-    def _generate_examples(self, data_path):
-        sentence_counter = 0
-        with open(data_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        
-        current_words = []
-        current_labels = []
-        for row in lines:
-            row = row.rstrip()
-            if row != "":
-                token, label = row[0], row[2:]
-                current_words.append(token)
-                current_labels.append(label)
-            else:
-                if not current_words:
-                    continue
-                assert len(current_words) == len(current_labels), "word len doesn't match label length"
-                sentence = (
-                    sentence_counter,
-                    {
-                        "id": str(sentence_counter),
-                        "tokens": current_words,
-                        "ner_tags": current_labels,
-                    },
-                )
-                sentence_counter += 1
-                current_words = []
-                current_labels = []
-                yield sentence
-
-        # if something remains:
-        if current_words:
-            sentence = (
-                sentence_counter,
-                {
-                    "id": str(sentence_counter),
-                    "tokens": current_words,
-                    "ner_tags": current_labels,
-                },
-            )
-            yield sentence
-
     def read_data(self, input_file: str) -> Any:
-        return list(self._generate_examples(input_file))
+        with open(input_file, encoding="utf-8") as f:
+            examples = [json.loads(line) for line in f.readlines()]
+        return examples
 
     def create_examples(self, data: Any, data_type: str, **kwargs) -> List[Dict[str, Any]]:
         examples = []
-        # TODO:
-        if data_type == "train":
-            data = data[:400]
-        else:
-            data = data[400:]
-        get_entities = get_scheme("BIO")
         for (i, line) in enumerate(data):
             guid = f"{data_type}-{i}"
-            tokens = line[1]["tokens"]
+            tokens = line["text"]
             entities = None
             if data_type != "test":
-                entities = []
-                for label, start, end in get_entities(line[1]["ner_tags"]):
-                    entities.append((start, end + 1, label, tokens[start: end + 1]))
+                entities = line["entities"]
             examples.append(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens)))
         return examples
 
@@ -1477,6 +1503,15 @@ class RobertaForSpanClassification(RobertaPreTrainedModel, ModelForSpanClassific
         self.init_weights()
 
 
+class NeZhaForSpanClassification(NeZhaPreTrainedModel, ModelForSpanClassification):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.bert = NeZhaModel(config)
+        self.init_weights()
+
+
 def precision_recall_fscore_support(y_true: Union[List[List[str]], List[List[Tuple[int, int, Any]]]],
                                     y_pred: Union[List[List[str]], List[List[Tuple[int, int, Any]]]],
                                     *,
@@ -1561,16 +1596,10 @@ def precision_recall_fscore_support(y_true: Union[List[List[str]], List[List[Tup
                 pred = [(start, end, "_") for start, end, _ in pred]
 
             for start, end, label in true:
-                tokens = set()
-                for j in range(start, end):
-                    tokens.add(j)
-                entities_true[label].add((i, frozenset(tokens)))
+                entities_true[label].add((i, (start, end)))
 
             for start, end, label in pred:
-                tokens = set()
-                for j in range(start, end):
-                    tokens.add(j)
-                entities_pred[label].add((i, frozenset(tokens)))
+                entities_pred[label].add((i, (start, end)))
 
         if labels is not None:
             entities_true = {k: v for k, v in entities_true.items() if k in labels}
@@ -1795,9 +1824,8 @@ class Trainer(TrainerBase):
             wandb.log(metric_key_value_map)
 
 MODEL_CLASSES = {
-    # "bert": (BertConfig, BertForSpanClassification, BertTokenizerFast),
     "bert": (BertConfig, BertForSpanClassification, BertTokenizerZh),
-    "roberta": (RobertaConfig, RobertaForSpanClassification, RobertaTokenizerFast),
+    "nezha": (BertConfig, NeZhaForSpanClassification, BertTokenizerZh),
 }
 
 DATA_CLASSES = {
@@ -1806,7 +1834,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    sys.argv.append("outputs/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine_opts.json")
+    # sys.argv.append("outputs/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -1886,29 +1914,34 @@ def main(opts):
         import stanza
         stanza_nlp = stanza.Pipeline(lang="en", processors="tokenize,mwt,pos,lemma,depparse", use_gpu=True)
         stanza_nlp.processors["tokenize"].config.update({"pretokenized": True})
-    tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
-    train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
-                                 tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
-                                 opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
-    dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
-                                 tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
-                                 opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
-    test_dataset  = load_dataset(data_class, process_class, opts.test_input_file, opts.data_dir, "test",
-                                 tokenizer, opts.test_max_seq_length, opts.context_size, opts.max_span_length,
-                                 opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+    try:
+        tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
+    except AssertionError:
+        tokenizer = tokenizer_class.from_pretrained(os.path.join(opts.pretrained_model_path, "vocab.txt"), do_lower_case=opts.do_lower_case)
+    if opts.do_train or opts.do_check:
+        train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
+                                    tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+    if opts.do_train or opts.do_eval:
+        dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
+                                    tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+    if opts.do_predict:
+        test_dataset  = load_dataset(data_class, process_class, opts.test_input_file, opts.data_dir, "test",
+                                    tokenizer, opts.test_max_seq_length, opts.context_size, opts.max_span_length,
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
     if stanza_nlp is not None and train_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
         del stanza_nlp
-    opts.num_labels = train_dataset.num_labels
     opts.label2id = data_class.label2id()
     opts.id2label = data_class.id2label()
+    opts.num_labels = len(opts.label2id)
 
     # model
     logger.info("initializing model and config")
     config, unused_kwargs = config_class.from_pretrained(
         opts.pretrained_model_path, return_unused_kwargs=True,
         num_labels=opts.num_labels, id2label=opts.id2label, label2id=opts.label2id,
-        conditional=any(isinstance(processor, ConditionalProcessExample2Feature) 
-            for processor in train_dataset.process_piplines),
+        conditional=False,
         classifier_dropout=opts.classifier_dropout, 
         use_last_n_layers=opts.use_last_n_layers,
         agg_last_n_layers=opts.agg_last_n_layers,
@@ -2073,9 +2106,20 @@ def main(opts):
             results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
             entities = list(chain(*[batch["predictions"] for batch in results]))
             examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[0])
-            with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
+            # with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
+            #     for example in examples:
+            #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
+            # 保存为提交格式
+            with open(os.path.join(checkpoint, "predictions.txt"), "w") as f:
                 for example in examples:
-                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
+                    tokens = example["text"]
+                    ner_tags = ["O"] * len(example["text"])
+                    for start, end, label, string in example["entities"]:
+                        ner_tags[start] = f"B-{label}"
+                        for i in range(start + 1, end):
+                            ner_tags[i] = f"I-{label}"
+                    for token, tag in zip(tokens, ner_tags):
+                        f.write(f"{token} {tag}\n")
 
     if opts.do_check:
         # check dataset & decode function

@@ -1815,7 +1815,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    sys.argv.append("outputs/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine_opts.json")
+    # sys.argv.append("outputs/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
