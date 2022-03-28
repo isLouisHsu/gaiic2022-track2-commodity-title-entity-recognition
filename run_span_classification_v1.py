@@ -678,6 +678,18 @@ class ProcessMergeDiscontinuousSpans(ProcessBase):
         return example
 
 
+class ProcessConcateRandomExamples(ProcessBase):
+    """ 随机选择一个其他样本拼接，中间用[SEP]分隔 """
+    pass    # TODO:
+
+class ProcessDropRandomEntity(ProcessBase):
+    """ 随机选择实体丢弃 """
+    pass    # TODO:
+
+class ProcessPostProcess(ProcessBase):
+    """ 后处理 """
+    pass    # TODO:
+
 class ProcessExample2Feature(ProcessBase):
 
     def __init__(self, label2id, tokenizer, max_sequence_length, 
@@ -703,7 +715,7 @@ class ProcessExample2Feature(ProcessBase):
             return_tensors="pt",
         )
 
-    def _encode_spans(self, input_length, sent_start, sent_end):
+    def _encode_spans(self, input_length, sent_start, sent_end, skip_indices=None):
         spans = []; spans_mask = []
         sent_start = min(sent_start, self.max_sequence_length - 2)
         sent_end = min(sent_end, self.max_sequence_length - 2)
@@ -716,6 +728,10 @@ class ProcessExample2Feature(ProcessBase):
         span_starts, span_ends = span_starts.reshape(-1), span_ends.reshape(-1)
         spans = np.stack([span_starts, span_ends], axis=-1)     # (sequence_length * input_length, 2)
         spans = spans[span_ends <= sent_end]                    # (num_spans, 2)
+
+        if skip_indices is not None:
+            for index in skip_indices:
+                pass    # TODO:
         
         spans = [tuple(span) for span in spans.tolist()]
         spans_mask = np.ones(len(spans), dtype=np.int).tolist()
@@ -794,6 +810,7 @@ class ProcessExample2Feature(ProcessBase):
         sent_end = example.get("sent_end", len(tokens))
 
         # encode spans
+        # skip_indices = [idx for idx, token in enumerate(tokens) if token in self.tokenizer.all_special_tokens_extended]
         spans, spans_mask = self._encode_spans(input_length, sent_start, sent_end)
         inputs["spans"], inputs["spans_mask"] = torch.tensor(spans), torch.tensor(spans_mask)
 
@@ -2110,14 +2127,22 @@ def main(opts):
             #     for example in examples:
             #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
             # 保存为提交格式
+            # post_process = ProcessPostProcess()
             with open(os.path.join(checkpoint, "predictions.txt"), "w") as f:
-                for example in examples:
+                for example_no, example in enumerate(examples):
+                    # TODO: 后处理，解决标签冲突问题
+                    # example = post_process(example)
                     tokens = example["text"]
                     ner_tags = ["O"] * len(example["text"])
                     for start, end, label, string in example["entities"]:
-                        ner_tags[start] = f"B-{label}"
-                        for i in range(start + 1, end):
-                            ner_tags[i] = f"I-{label}"
+                        for i in range(start, end):
+                            if i == start:
+                                tag = f"B-{label}"
+                            else:
+                                tag = f"I-{label}"
+                            if ner_tags[i] != "O":
+                                logger.info(f"Label Conflict occurs at {i}, current: {example_no}/{ner_tags[i]}, new: {tag}")
+                            ner_tags[i] = tag
                     for token, tag in zip(tokens, ner_tags):
                         f.write(f"{token} {tag}\n")
 

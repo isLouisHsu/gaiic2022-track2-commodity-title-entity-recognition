@@ -310,6 +310,7 @@ python run_span_classification_v1.py \
 2022-03-27 15:23:27 - INFO - root -   eval_f1_micro_all_entity = 0.8067
 2022-03-27 15:23:27 - INFO - root -   eval_loss = 0.0212
 
+# 线下 0.8098 线上 0.8043585754429128
 python run_span_classification_v1.py \
     --experiment_code=nezha-cn-base-span-v1-lr3e-5-wd0.01-dropout0.5-span15-e5-bs16x1-sinusoidal-biaffine-fgm1.0 \
     --task_name=gaiic \
@@ -510,4 +511,108 @@ python run_span_classification_v1.py \
 2022-03-27 18:00:56 - INFO - root -   eval_f1_micro_all_entity = 0.8076
 2022-03-27 18:00:56 - INFO - root -   eval_loss = 0.7262
 
-scheduler
+TODO: scheduler
+
+python run_span_classification_v1.py \
+    --experiment_code=nezha-cn-base-30k-mlm0.5-span-v1-lr3e-5-wd0.01-dropout0.1-span15-e10-bs16x1-sinusoidal-biaffine-fgm1.0 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-30k-mlm0.5/checkpoint-30000/ \
+    --data_dir=data/processed/v0/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_train --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=256 \
+    --eval_max_seq_length=512 \
+    --test_max_seq_length=512 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=1 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=10 \
+    --loss_type=ce \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.1 \
+    --negative_sampling=0.0 \
+    --max_span_length=15 \
+    --width_embedding_size=128 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable \
+    --adv_epsilon=1.0 \
+    --seed=42
+2022-03-28 22:57:29 - INFO - root - ***** Evaluating results of gaiic *****
+2022-03-28 22:57:29 - INFO - root -   global step = 20000
+2022-03-28 22:57:29 - INFO - root -   eval_df_all_entity = 
+    label  precision  recall      f1  support
+0   micro     0.8023  0.8070  0.8047   131361
+1       1     0.9148  0.9467  0.9305     5061
+2      10     0.6136  0.6367  0.6250     1671
+3      11     0.8249  0.7867  0.8054    12120
+4      12     0.8228  0.8254  0.8241     2469
+5      13     0.7930  0.7070  0.7475    12729
+6      14     0.8719  0.9300  0.9000     4385
+7      15     0.5956  0.7842  0.6770      139
+8      16     0.9140  0.9444  0.9289     4333
+9      17     1.0000  0.2000  0.3333        5
+10     18     0.7800  0.8454  0.8114    10700
+11     19     0.3333  0.1379  0.1951       29
+12      2     0.4245  0.2070  0.2783      570
+13     20     0.3750  0.3621  0.3684      116
+14     21     0.4844  0.3163  0.3827       98
+15     22     0.4341  0.4360  0.4350     1851
+16     23     0.0000  0.0000  0.0000        2
+17     24     0.0000  0.0000  0.0000        1
+18     25     0.0000  0.0000  0.0000       10
+19     26     0.0000  0.0000  0.0000        0
+20     28     0.1250  0.1667  0.1429        6
+21     29     0.7611  0.7395  0.7501      883
+22      3     0.6596  0.5958  0.6261     1821
+23     30     0.3981  0.3504  0.3727      117
+24     31     0.3548  0.3313  0.3427      166
+25     32     0.5000  0.2000  0.2857        5
+26     33     1.0000  0.5000  0.6667        2
+27     34     0.1667  0.0488  0.0755       41
+28     35     0.0000  0.0000  0.0000        0
+29     36     0.5929  0.4152  0.4884      684
+30     37     0.8083  0.8945  0.8492     3063
+31     38     0.6950  0.7567  0.7245     6082
+32     39     0.6396  0.3939  0.4875     1018
+33      4     0.8460  0.9022  0.8732    33349
+34     40     0.7937  0.6996  0.7437     6379
+35     41     0.2857  0.0227  0.0421       88
+36     42     0.0000  0.0000  0.0000        3
+37     43     0.0000  0.0000  0.0000       13
+38     44     0.0000  0.0000  0.0000        6
+39     46     0.0000  0.0000  0.0000        8
+40     47     0.4138  0.3623  0.3863      265
+41     48     0.4722  0.4857  0.4789       35
+42     49     0.4540  0.5034  0.4774      294
+43      5     0.7531  0.7866  0.7695     8160
+44     50     0.6462  0.5600  0.6000       75
+45     51     1.0000  0.5000  0.6667        4
+46     52     0.6207  0.4865  0.5455       37
+47     53     0.0000  0.0000  0.0000        0
+48     54     0.8044  0.6301  0.7067     1168
+49      6     0.7904  0.7121  0.7492      323
+50      7     0.9057  0.9089  0.9073     4986
+51      8     0.9137  0.9068  0.9102     3421
+52      9     0.5755  0.5813  0.5784     2570
+2022-03-28 22:57:29 - INFO - root -   eval_df_without_label_entity = 
+   label  precision  recall      f1  support
+0  micro     0.8973  0.9026  0.8999   131361
+1      _     0.8973  0.9026  0.8999   131361
+2022-03-28 22:57:29 - INFO - root -   eval_f1_micro_all_entity = 0.8047
+2022-03-28 22:57:29 - INFO - root -   eval_f1_micro_without_label_entity = 0.8999
+2022-03-28 22:57:29 - INFO - root -   eval_loss = 0.0208

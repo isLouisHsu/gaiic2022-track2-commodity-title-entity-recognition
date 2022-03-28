@@ -1,8 +1,10 @@
 import re
+import logging
 from typing import *
 from transformers import BertTokenizer
 from transformers.tokenization_utils_base import TextInput, AddedToken
 
+logger = logging.getLogger(__name__)
 # SPACE_TOKEN = "[UNK]"
 SPACE_TOKEN = "[unused1]"
 

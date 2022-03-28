@@ -30,7 +30,7 @@ done
 
 export WANDB_DISABLED=true
 data_dir=data/processed/pretrain-v0
-version=nezha-legal-cn-base-wwm-30k-mlm0.5
+version=nezha-cn-base-wwm-30k-mlm0.5
 nohup python run_mlm_wwm.py \
     --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
     --model_type=nezha \
