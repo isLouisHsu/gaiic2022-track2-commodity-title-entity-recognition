@@ -2140,7 +2140,7 @@ def main(opts):
                                 tag = f"B-{label}"
                             else:
                                 tag = f"I-{label}"
-                            if ner_tags[i] != "O":
+                            if ner_tags[i] != "O" and ner_tags[i] != tag:
                                 logger.info(f"Label Conflict occurs at {i}, current: {example_no}/{ner_tags[i]}, new: {tag}")
                             ner_tags[i] = tag
                     for token, tag in zip(tokens, ner_tags):

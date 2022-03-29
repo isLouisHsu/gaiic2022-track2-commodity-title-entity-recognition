@@ -8,6 +8,7 @@ from sklearn.model_selection import KFold
 sys.path.append("TorchBlocks/")
 from torchblocks.utils.seed import seed_everything
 from torchblocks.metrics.sequence_labeling.scheme import get_scheme
+from utils import get_spans_bio
 
 def generate_examples(data_path):
     sentence_counter = 0
@@ -53,7 +54,8 @@ def generate_examples(data_path):
 
 def create_examples(data: Any, data_type: str, **kwargs) -> List[Dict[str, Any]]:
     examples = []
-    get_entities = get_scheme("BIO")
+    # get_entities = get_scheme("BIO")  # FIXED: 该函数无法提取由"B-X"标记的单个token实体
+    get_entities = get_spans_bio
     for (i, line) in enumerate(data):
         guid = f"{data_type}-{i}"
         tokens = line[1]["tokens"]
@@ -76,6 +78,7 @@ if __name__ == "__main__":
     ])
     parser.add_argument("--output_dir", type=str, default="data/processed/")
     parser.add_argument("--n_splits", type=int, default=5)
+    parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -88,7 +91,7 @@ if __name__ == "__main__":
     labeled_examples = []
     for labeled_file in args.labeled_files:
         labeled_examples.extend(create_examples(generate_examples(labeled_file), "train"))
-    kf = KFold(n_splits=args.n_splits, shuffle=True)
+    kf = KFold(n_splits=args.n_splits, shuffle=args.shuffle)
     for fold_no, (train_index, dev_index) in enumerate(kf.split(labeled_examples)):
         print(f"split={fold_no}, #train={len(train_index)}, #dev={len(dev_index)}")
         with open(os.path.join(args.output_dir, f"train.{fold_no}.jsonl"), "w") as f:
