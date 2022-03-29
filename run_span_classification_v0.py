@@ -3,6 +3,7 @@ import re
 import sys
 import json
 import yaml
+import math
 import random
 import argparse
 import numpy as np
@@ -27,8 +28,9 @@ if os.environ.get("WANDB_ENABLE", False):
 
 import torch
 from torch import nn
+from torch.nn import init
 from torch.nn import functional as F
-from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 
 from transformers import (
     BertConfig, BertPreTrainedModel, BertModel, BertTokenizerFast, BertTokenizer,
@@ -36,6 +38,7 @@ from transformers import (
     PreTrainedModel, AdamW,
 )
 from transformers.file_utils import ModelOutput
+from nezha.modeling_nezha import NeZhaPreTrainedModel, NeZhaModel
 
 sys.path.append("TorchBlocks/")
 from torchblocks.callback import ProgressBar
@@ -330,78 +333,102 @@ class SpanClassificationDataset(DatasetBase):
         return batch
 
 
+# class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
+
+#     @classmethod
+#     def get_labels(cls) -> List[str]:
+#         return ["O",] + [
+#             # str(i) for i in range(55) if i not in [0, 27, 45]
+#             str(i) for i in range(55)   # TODO:
+#         ]
+
+#     def _generate_examples(self, data_path):
+#         sentence_counter = 0
+#         with open(data_path, encoding="utf-8") as f:
+#             lines = f.readlines()
+        
+#         current_words = []
+#         current_labels = []
+#         for row in lines:
+#             row = row.rstrip("\n")
+#             if row != "":
+#                 token, label = row[0], row[2:]
+#                 current_words.append(token)
+#                 current_labels.append(label)
+#             else:
+#                 if not current_words:
+#                     continue
+#                 assert len(current_words) == len(current_labels), "word len doesn't match label length"
+#                 sentence = (
+#                     sentence_counter,
+#                     {
+#                         "id": str(sentence_counter),
+#                         "tokens": current_words,
+#                         "ner_tags": current_labels,
+#                     },
+#                 )
+#                 sentence_counter += 1
+#                 current_words = []
+#                 current_labels = []
+#                 yield sentence
+
+#         # if something remains:
+#         if current_words:
+#             sentence = (
+#                 sentence_counter,
+#                 {
+#                     "id": str(sentence_counter),
+#                     "tokens": current_words,
+#                     "ner_tags": current_labels,
+#                 },
+#             )
+#             yield sentence
+
+#     def read_data(self, input_file: str) -> Any:
+#         return list(self._generate_examples(input_file))
+
+#     def create_examples(self, data: Any, data_type: str, **kwargs) -> List[Dict[str, Any]]:
+#         examples = []
+#         # TODO:
+#         if data_type == "train":
+#             data = data[:400]
+#         else:
+#             data = data[400:]
+#         get_entities = get_scheme("BIO")
+#         for (i, line) in enumerate(data):
+#             guid = f"{data_type}-{i}"
+#             tokens = line[1]["tokens"]
+#             entities = None
+#             if data_type != "test":
+#                 entities = []
+#                 for label, start, end in get_entities(line[1]["ner_tags"]):
+#                     entities.append((start, end + 1, label, tokens[start: end + 1]))
+#             examples.append(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens)))
+#         return examples
+
+
 class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
 
     @classmethod
     def get_labels(cls) -> List[str]:
-        return ["O", ] + [f"{prefix}-{label}" for label in (
-            str(i) for i in range(55)   # TODO:
-        ) for prefix in ("BE", )]
-
-    def _generate_examples(self, data_path):
-        sentence_counter = 0
-        with open(data_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        
-        current_words = []
-        current_labels = []
-        for row in lines:
-            row = row.rstrip()
-            if row != "":
-                token, label = row[0], row[2:]
-                current_words.append(token)
-                current_labels.append(label)
-            else:
-                if not current_words:
-                    continue
-                assert len(current_words) == len(current_labels), "word len doesn't match label length"
-                sentence = (
-                    sentence_counter,
-                    {
-                        "id": str(sentence_counter),
-                        "tokens": current_words,
-                        "ner_tags": current_labels,
-                    },
-                )
-                sentence_counter += 1
-                current_words = []
-                current_labels = []
-                yield sentence
-
-        # if something remains:
-        if current_words:
-            sentence = (
-                sentence_counter,
-                {
-                    "id": str(sentence_counter),
-                    "tokens": current_words,
-                    "ner_tags": current_labels,
-                },
-            )
-            yield sentence
+        return ["O",] + [
+            str(i) for i in range(55) if i not in [0, 27, 45]
+        ]
 
     def read_data(self, input_file: str) -> Any:
-        return list(self._generate_examples(input_file))
+        with open(input_file, encoding="utf-8") as f:
+            examples = [json.loads(line) for line in f.readlines()]
+        return examples
 
     def create_examples(self, data: Any, data_type: str, **kwargs) -> List[Dict[str, Any]]:
         examples = []
-        labels = set()  # TODO: del
-        # TODO:
-        if data_type == "train":
-            data = data[:400]
-        else:
-            data = data[400:]
-        get_entities = get_scheme("BIO")
         for (i, line) in enumerate(data):
             guid = f"{data_type}-{i}"
-            tokens = line[1]["tokens"]
+            tokens = line["text"]
             entities = None
             if data_type != "test":
-                entities = []
-                for label, start, end in get_entities(line[1]["ner_tags"]):
-                    labels.add(label)
-                    entities.append([(start, end + 1, label, tokens[start: end + 1])])
-            examples.append(self.set_example_type(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens))))
+                entities = line["entities"]
+            examples.append(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens)))
         return examples
 
 
@@ -651,6 +678,18 @@ class ProcessMergeDiscontinuousSpans(ProcessBase):
         return example
 
 
+class ProcessConcateRandomExamples(ProcessBase):
+    """ 随机选择一个其他样本拼接，中间用[SEP]分隔 """
+    pass    # TODO:
+
+class ProcessDropRandomEntity(ProcessBase):
+    """ 随机选择实体丢弃 """
+    pass    # TODO:
+
+class ProcessPostProcess(ProcessBase):
+    """ 后处理 """
+    pass    # TODO:
+
 class ProcessExample2Feature(ProcessBase):
 
     def __init__(self, label2id, tokenizer, max_sequence_length, 
@@ -676,23 +715,27 @@ class ProcessExample2Feature(ProcessBase):
             return_tensors="pt",
         )
 
-    # # FIXME: 该函数得到的span最长长度不足max_span_length，但是cadec可以复现0.735
-    # def _encode_spans(self, input_length, sent_start, sent_end):
-    #     spans = []; spans_mask = []
-    #     for i in range(1, input_length - 1):  # CLS, SEP
-    #         for j in range(i, min(input_length, i + self.max_span_length) - 1):
-    #             spans.append((i, j)); spans_mask.append(1)
-    #     return spans, spans_mask
-
-    def _encode_spans(self, input_length, sent_start, sent_end):
+    def _encode_spans(self, input_length, sent_start, sent_end, skip_indices=None):
         spans = []; spans_mask = []
-        sent_start = min(sent_start, self.max_sequence_length - 1)
-        sent_end = min(sent_end, self.max_sequence_length - 1) 
-        # TODO: 优化代码，不要用循环
-        for i in range(sent_start, sent_end):
-            for j in range(i, min(i + self.max_span_length, sent_end)):
-                spans.append((i + 1, j + 1))    # CLS, SEP
-                spans_mask.append(1)
+        sent_start = min(sent_start, self.max_sequence_length - 2)
+        sent_end = min(sent_end, self.max_sequence_length - 2)
+        
+        span_starts = np.arange(sent_start, sent_end) + 1       # (sequence_length,)
+        span_lengths = np.arange(self.max_span_length)          # (input_length,)
+        span_ends = span_starts.reshape(-1, 1) + span_lengths   # (sequence_length, input_length)
+        span_starts = np.expand_dims(span_starts, 1) \
+            .repeat(self.max_span_length, axis=1)               # (sequence_length, input_length)
+        span_starts, span_ends = span_starts.reshape(-1), span_ends.reshape(-1)
+        spans = np.stack([span_starts, span_ends], axis=-1)     # (sequence_length * input_length, 2)
+        spans = spans[span_ends <= sent_end]                    # (num_spans, 2)
+
+        if skip_indices is not None:
+            for index in skip_indices:
+                pass    # TODO:
+        
+        spans = [tuple(span) for span in spans.tolist()]
+        spans_mask = np.ones(len(spans), dtype=np.int).tolist()
+
         return spans, spans_mask
     
     def _encode_syntactic(self, text, bert_offset_mapping):
@@ -727,41 +770,17 @@ class ProcessExample2Feature(ProcessBase):
 
     def _encode_labels(self, entities, spans, input_length, offset_mapping):
         span2label_map = dict()
-        for entity in entities:
+        for start, end, label, string in entities:
             # keep entities which are not truncated
-            if any([start >= input_length or end >= start >= input_length for start, end, *_ in entity]):
+            if start >= input_length or end >= start >= input_length:
                 continue
             # span-to-label map(token-level)
-            num_spans = len(entity)
-            entity = sorted(entity, key=lambda x: (x[0], x[1]))
-            for i, (start, end, label, string) in enumerate(entity):
-                start, end = start + 1, end + 1                             # CLS, SEP
-                start_prefix = "B" if i == 0 else "I"
-                end_prefix = "E" if i == num_spans - 1 else "I"
-                prefix = start_prefix + end_prefix
-                span = (start, end - 1)
-                span_label = span2label_map.get(span, None)
-                label = prefix + "-" + label
-                if span_label is not None and span_label != label:
-                    print(f"\nLabel conflict of span {span}(current: {span_label}, new: {label})")
-                    if prefix != "BE": 
-                        print("Label replaced")
-                        span2label_map[span] = label         # 左闭右闭，优先不连续
-                    # if prefix[-1] == "E": 
-                    #     print("Label replaced")
-                    #     span2label_map[span] = label      # 左闭右闭，优先结束
-                else:
-                    span2label_map[span] = label                                # 左闭右闭
-            for span_a, span_b in zip(entity[:-1], entity[1:]):
-                start, end = span_a[1], span_b[0]
-                start, end = start + 1, end + 1                             # CLS, SEP
-                span = (start, end - 1)
-                span_label = span2label_map.get(span, None)
-                label = "II" + "-" + "O"
-                if span_label is not None and span_label != label:
-                    print(f"\nLabel conflict of span {span}(current: {span_label}, new: {label})")
-                    if prefix != "BE": span2label_map[span] = label         # 左闭右闭，优先不连续
-                    continue
+            start, end = start + 1, end + 1                             # CLS, SEP
+            span = (start, end - 1)
+            span_label = span2label_map.get(span, None)
+            if span_label is not None and span_label != label:
+                print(f"\nLabel conflict of span {span}(current: {span_label}, new: {label})")
+            else:
                 span2label_map[span] = label                                # 左闭右闭
 
         labels = []
@@ -791,6 +810,7 @@ class ProcessExample2Feature(ProcessBase):
         sent_end = example.get("sent_end", len(tokens))
 
         # encode spans
+        # skip_indices = [idx for idx, token in enumerate(tokens) if token in self.tokenizer.all_special_tokens_extended]
         spans, spans_mask = self._encode_spans(input_length, sent_start, sent_end)
         inputs["spans"], inputs["spans_mask"] = torch.tensor(spans), torch.tensor(spans_mask)
 
@@ -928,6 +948,81 @@ class XBilinear(nn.Module):
         return self.bilinear(input1, input2)
 
 
+class XBiaffineRel(nn.Module):
+
+    def __init__(self, hidden_size: int, out_features: int, bias: bool = True, div: int = 1) -> None:
+        super().__init__()
+
+        self.W1 = nn.Parameter(torch.Tensor(hidden_size, hidden_size // div, out_features))
+        self.W2 = nn.Parameter(torch.Tensor(hidden_size, hidden_size // div))
+        self.linear = nn.Linear(hidden_size + hidden_size + hidden_size // div, out_features, bias=False)
+        if bias:
+            self.bias = nn.Parameter(torch.Tensor(out_features))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+            
+        relative_positions_embeddings = self._generate_relative_positions_embeddings(512, hidden_size // div)
+        self.register_buffer("relative_positions_embeddings", relative_positions_embeddings)
+
+    def reset_parameters(self) -> None:
+        bound = 1 / math.sqrt(self.W2.size(1))
+        init.uniform_(self.W1, -bound, bound)
+        init.uniform_(self.W2, -bound, bound)
+        if self.bias is not None:
+            init.uniform_(self.bias, -bound, bound)
+        # # init.kaiming_uniform_(self.W1, a=math.sqrt(5))
+        # # init.kaiming_uniform_(self.W2, a=math.sqrt(5))
+        # self.W1.data.normal_(mean=0.0, std=0.02)
+        # self.W2.data.normal_(mean=0.0, std=0.02)
+        # if self.bias is not None:
+        #     self.bias.data.zero_()
+    
+    @classmethod
+    def _generate_relative_positions_embeddings(cls, length, depth, max_relative_position=127):
+        vocab_size = max_relative_position * 2 + 1
+        range_vec = torch.arange(length)
+        range_mat = range_vec.repeat(length).view(length, length)
+        distance_mat = range_mat - torch.t(range_mat)
+        distance_mat_clipped = torch.clamp(distance_mat, -max_relative_position, max_relative_position)
+        final_mat = distance_mat_clipped + max_relative_position
+        embeddings_table = np.zeros([vocab_size, depth])
+        for pos in range(vocab_size):
+            for i in range(depth // 2):
+                embeddings_table[pos, 2 * i] = np.sin(pos / np.power(10000, 2 * i / depth))
+                embeddings_table[pos, 2 * i + 1] = np.cos(pos / np.power(10000, 2 * i / depth))
+
+        embeddings_table_tensor = torch.tensor(embeddings_table).float()
+        flat_relative_positions_matrix = final_mat.view(-1)
+        one_hot_relative_positions_matrix = torch.nn.functional.one_hot(
+            flat_relative_positions_matrix,num_classes=vocab_size).float()
+        embeddings = torch.matmul(one_hot_relative_positions_matrix, embeddings_table_tensor)
+        my_shape = list(final_mat.size())
+        my_shape.append(depth)
+        embeddings = embeddings.view(my_shape)
+        return embeddings
+
+    def forward(self, input1: torch.Tensor, input2: torch.Tensor, spans: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+            input1: torch.Tensor[batch_size, num_spans, hidden_size]
+            input2: torch.Tensor[batch_size, num_spans, hidden_size]
+            spans: torch.Tensor[batch_size, num_spans, 2]
+        
+        """
+        pe = self.relative_positions_embeddings[spans[..., 0], spans[..., 1]]
+        # [x; y; p] W3
+        output = self.linear(torch.cat([input1, input2, pe], dim=-1))
+        # (x W1)(y W2 + p) / d
+        input1 = torch.einsum("bnh,hdc->bndc", input1, self.W1)
+        input2 = torch.einsum("bnh,hd->bnd", input2, self.W2)
+        scale = math.sqrt(self.relative_positions_embeddings.size(-1))
+        output = output + torch.einsum("bndc,bnd->bnc", input1, input2 + pe) / scale
+        if self.bias is not None: 
+            output = output + self.bias
+        return output
+
 class SpanClassificationHead(nn.Module):
 
     def __init__(self, hidden_size, num_labels, max_span_length, width_embedding_size,
@@ -990,15 +1085,13 @@ class SpanClassificationHead(nn.Module):
 
         self.do_biaffine = do_biaffine
         if self.do_biaffine:
-            self.bilinear = XBilinear(hidden_size, hidden_size, num_labels, bias=False, div=4)
-    
+            self.bilinear = XBiaffineRel(hidden_size, num_labels, bias=True, div=4)
+
     def _extract_spans_embedding_endpoint(self, sequence_output, spans):
 
         if self.do_projection:
             sequence_start_output = self.start_projection(sequence_output)
             sequence_end_output   = self.end_projection  (sequence_output)
-            # sequence_start_output = F.tanh(sequence_start_output)
-            # sequence_end_output   = F.tanh(sequence_end_output  )
         else:
             sequence_start_output = sequence_output
             sequence_end_output   = sequence_output
@@ -1077,7 +1170,7 @@ class SpanClassificationHead(nn.Module):
 
         logits = self.classifier(spans_embedding)
         if self.do_biaffine:
-            logits = logits + self.bilinear(spans_start_embedding, spans_end_embedding)
+            logits = logits + self.bilinear(spans_start_embedding, spans_end_embedding, spans)
 
         return logits
 
@@ -1164,63 +1257,21 @@ class SpanClassificationHead(nn.Module):
         spans = spans.cpu().numpy().tolist()
         spans_mask = spans_mask.cpu().numpy().tolist()
 
-        decode_spans = []; decode_entities = []
+        decode_entities = []
         for i in range(batch_size):
-
-            raw_spans = []      # 第i样本的span
+            entities = []
             sent_start = float("inf")
             for span, mask, label in zip(spans[i], spans_mask[i], labels[i]):
                 if mask == 0: break
                 start, end = span       # 左闭右闭
                 sent_start = min(sent_start, start)
                 if label == "O": continue
-                (start_prefix, end_prefix), label = label.split("-")
-                raw_spans.append(((start, start_prefix), (end + 1, end_prefix), label)) # 左闭右开
-            raw_spans = sorted(raw_spans, key=lambda x: (x[0][0], x[1][0]))             # 以实体出现位置排序
-            decode_spans.append(raw_spans)
-
-            label2prefix2spans_map = defaultdict(lambda: defaultdict(list))
-            for (start_pos, start_prefix), (end_pos, end_prefix), label in raw_spans:
-                prefix = start_prefix + end_prefix
-                span = (start_pos - sent_start, end_pos - sent_start)
-                label2prefix2spans_map[label][prefix].append(span)
-
-            entities = []
-            blanks = {(start, end) for start, end in label2prefix2spans_map["O"]["II"]}
-            for label, prefix2spans in label2prefix2spans_map.items():
-                if label == "O": continue
-                # 连续实体
-                for start, end in prefix2spans["BE"]:
-                    entities.append([(start, end, label), ])
-                # 先合并BI + II
-                bi_entities = [[(start, end, label), ] for start, end in prefix2spans["BI"]]
-                while True:
-                    bi_entities_new = []
-                    for entity, span in product(bi_entities, prefix2spans["II"]):
-                        last_end, start = entity[-1][1], span[0]
-                        if last_end > start: continue
-                        if last_end == start or (last_end, start) in blanks:
-                            span += (label, )
-                            bi_entity = entity + [span, ]
-                            if bi_entity not in bi_entities:
-                                bi_entities_new.append(bi_entity)
-                    if len(bi_entities_new) == 0: break
-                    bi_entities.extend(bi_entities_new)
-                # 合并BI + IE
-                for entity, span in product(bi_entities, prefix2spans["IE"]):
-                    last_end, start = entity[-1][1], span[0]
-                    if last_end > start: continue
-                    if last_end == start or (last_end, start) in blanks:
-                        span += (label, )
-                        entities.append(entity + [span, ])
-
-            entities = set([tuple(entity) for entity in entities])
-            entities = [[span for span in entity] for entity in entities]
-            if len(entities) > 0:
-                entities = sorted(entities, key=lambda x: (x[0][0], x[0][1] - x[0][0]))
+                start -= sent_start; end -= sent_start
+                entities.append((start, end + 1, label))   # 左闭右开
+            entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
             decode_entities.append(entities)
 
-        return decode_spans, decode_entities
+        return decode_entities
 
 
 class SpanClassificationLoss(nn.Module):
@@ -1270,8 +1321,6 @@ class SpanClassificationOutput(ModelOutput):
     logits: torch.FloatTensor = None
     groundtruths: List[List[Entity]] = None
     predictions: List[List[Entity]] = None
-    predict_spans: List[List[Span]] = None
-    groundtruth_spans: List[List[Span]] = None
 
 
 class ModelForSpanClassification(PreTrainedModel):
@@ -1288,14 +1337,9 @@ class ModelForSpanClassification(PreTrainedModel):
                 self.config.hidden_size, self.config.hidden_size)
         
         if config.do_lstm:
-            from allennlp.modules.lstm_cell_with_projection import LstmCellWithProjection
-            self.forward_lstm = LstmCellWithProjection(
-                config.hidden_size, config.hidden_size // 2, config.hidden_size, 
-                go_forward=True, recurrent_dropout_probability=config.hidden_dropout_prob)
-            self.backward_lstm = LstmCellWithProjection(
-                config.hidden_size, config.hidden_size // 2, config.hidden_size, 
-                go_forward=False, recurrent_dropout_probability=config.hidden_dropout_prob)
-        
+            self.lstm = nn.LSTM(config.hidden_size, config.hidden_size // 2, 
+                num_layers=config.num_lstm_layers, batch_first=True, bidirectional=True)
+
         if config.use_syntactic:
             self.syntactic_upos_embeddings = nn.Embedding(config.syntactic_upos_size, config.hidden_size)
         
@@ -1416,30 +1460,30 @@ class ModelForSpanClassification(PreTrainedModel):
                     last_hidden_state = torch.max(last_hidden_state, dim=-1)[0]
                 outputs["last_hidden_state"] = last_hidden_state
 
-
         sequence_output = outputs["last_hidden_state"]
 
         if self.config.do_lstm:
-            forward_output, _ = self.forward_lstm(sequence_output, 
-                attention_mask.sum(dim=-1).cpu().numpy().tolist())
-            backward_output, _ = self.backward_lstm(sequence_output, 
-                attention_mask.sum(dim=-1).cpu().numpy().tolist())
-            sequence_output = torch.cat([forward_output, backward_output], dim=-1)
+            sequence_lengths = attention_mask.sum(dim=1)
+            packed_sequence_output = pack_padded_sequence(
+                sequence_output, sequence_lengths.cpu(), batch_first=True, enforce_sorted=False)
+            packed_sequence_output, _ = self.lstm(packed_sequence_output)
+            unpacked_sequence_output, _ = pad_packed_sequence(
+                packed_sequence_output, batch_first=True, total_length=sequence_lengths.max())
+            sequence_output = sequence_output + unpacked_sequence_output
 
         sequence_output = self.dropout(sequence_output)
-
         logits = self.head(sequence_output, spans)          # (batch_size, num_spans, num_labels)
-        predict_spans = predictions = None
+        predictions = None
         if not self.training:
-            predict_spans, predictions = self.decode(logits, spans, spans_mask, self.config.decode_thresh,
+            predictions = self.decode(logits, spans, spans_mask, self.config.decode_thresh,
                                       self.config.label2id, self.config.id2label, is_logits=True)
 
         loss = None
-        groundtruth_spans = groundtruths = None
+        groundtruths = None
         if labels is not None:
             loss = self.loss_fct(logits, labels, spans_mask)
             if not self.training:
-                groundtruth_spans, groundtruths = self.decode(labels, spans, spans_mask, self.config.decode_thresh,
+                groundtruths = self.decode(labels, spans, spans_mask, self.config.decode_thresh,
                                            self.config.label2id, self.config.id2label, is_logits=False)
 
         if not return_dict:
@@ -1451,8 +1495,6 @@ class ModelForSpanClassification(PreTrainedModel):
             logits=logits,
             predictions=predictions,
             groundtruths=groundtruths,
-            predict_spans=predict_spans,
-            groundtruth_spans=groundtruth_spans,
         )
 
     @classmethod
@@ -1475,6 +1517,15 @@ class RobertaForSpanClassification(RobertaPreTrainedModel, ModelForSpanClassific
         super().__init__(config)
 
         self.roberta = RobertaModel(config, add_pooling_layer=False)
+        self.init_weights()
+
+
+class NeZhaForSpanClassification(NeZhaPreTrainedModel, ModelForSpanClassification):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.bert = NeZhaModel(config)
         self.init_weights()
 
 
@@ -1555,29 +1606,17 @@ def precision_recall_fscore_support(y_true: Union[List[List[str]], List[List[Tup
 
         for i, (true, pred) in enumerate(zip(y_true, y_pred)):
 
-            is_contain_discontinuous = any([len(spans) > 1 for spans in true])
-            if entity_type == "contiguous" and is_contain_discontinuous:
-                continue    # 仅保留只有连续实体的样本
-            if entity_type == "discontinuous" and not is_contain_discontinuous:
-                continue    # 仅保留包含不连续实体的样本
+            if entity_type == "all":
+                pass
+            if entity_type == "without_label":
+                true = [(start, end, "_") for start, end, _ in true]
+                pred = [(start, end, "_") for start, end, _ in pred]
 
-            for spans in true:
-                type_name = spans[0][2]
-                assert all([type_name == label for _, _, label in spans])
-                tokens = set()
-                for start, end, label in spans:
-                    for j in range(start, end):
-                        tokens.add(j)
-                entities_true[type_name].add((i, frozenset(tokens)))
+            for start, end, label in true:
+                entities_true[label].add((i, (start, end)))
 
-            for spans in pred:
-                type_name = spans[0][2]
-                assert all([type_name == label for _, _, label in spans])
-                tokens = set()
-                for start, end, label in spans:
-                    for j in range(start, end):
-                        tokens.add(j)
-                entities_pred[type_name].add((i, frozenset(tokens)))
+            for start, end, label in pred:
+                entities_pred[label].add((i, (start, end)))
 
         if labels is not None:
             entities_true = {k: v for k, v in entities_true.items() if k in labels}
@@ -1697,7 +1736,6 @@ class Trainer(TrainerBase):
             if batch.get('loss'):
                 self.records['loss_meter'].update(batch['loss'], n=1)
 
-            # FIXED: groundtruth不应经encode/decode后得到，会有错误,但是cadec可以复现0.735
             groundtruths = batch["groundtruths"]
             start_index = eval_dataloader.batch_size * step
             end_index   = eval_dataloader.batch_size * (step + 1)
@@ -1709,8 +1747,7 @@ class Trainer(TrainerBase):
                     example = proc(example)
                 example = dev_data.process_piplines[-1].converter(example)
                 groundtruths[i] = [
-                    [(start, end, label) for start, end, label, string in entity] 
-                    for entity in example["entities"]
+                    (start, end, label) for start, end, label, string in example["entities"]
                 ]
 
             all_batch_list.append(batch)
@@ -1732,7 +1769,7 @@ class Trainer(TrainerBase):
                     spans  = batch_list["spans" ]
                     spans_mask = batch_list["spans_mask"]
                     groundtruths = batch_list["groundtruths"]
-                    _, predictions = self.model.decode(logits, spans, spans_mask, decode_thresh, 
+                    predictions = self.model.decode(logits, spans, spans_mask, decode_thresh, 
                         self.model.config.label2id, self.model.config.id2label)
                     all_batch_list_temp[-1]["predictions"] = predictions
                     all_batch_list_temp[-1]["groundtruths"] = groundtruths
@@ -1804,9 +1841,8 @@ class Trainer(TrainerBase):
             wandb.log(metric_key_value_map)
 
 MODEL_CLASSES = {
-    # "bert": (BertConfig, BertForSpanClassification, BertTokenizerFast),
     "bert": (BertConfig, BertForSpanClassification, BertTokenizerZh),
-    "roberta": (RobertaConfig, RobertaForSpanClassification, RobertaTokenizerFast),
+    "nezha": (BertConfig, NeZhaForSpanClassification, BertTokenizerZh),
 }
 
 DATA_CLASSES = {
@@ -1842,6 +1878,7 @@ def build_opts():
         group.add_argument("--find_best_decode_thresh", action="store_true")
         group.add_argument("--use_sinusoidal_width_embedding", action="store_true")
         group.add_argument("--do_lstm", action="store_true")
+        group.add_argument("--num_lstm_layers", type=int, default=1)
         group.add_argument("--do_projection", action="store_true")
         group.add_argument("--do_cln", action="store_true")
         group.add_argument("--do_co_attention", action="store_true")
@@ -1894,29 +1931,35 @@ def main(opts):
         import stanza
         stanza_nlp = stanza.Pipeline(lang="en", processors="tokenize,mwt,pos,lemma,depparse", use_gpu=True)
         stanza_nlp.processors["tokenize"].config.update({"pretokenized": True})
-    tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
-    train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
-                                 tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
-                                 opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
-    dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
-                                 tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
-                                 opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
-    test_dataset  = load_dataset(data_class, process_class, opts.test_input_file, opts.data_dir, "test",
-                                 tokenizer, opts.test_max_seq_length, opts.context_size, opts.max_span_length,
-                                 opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+    try:
+        tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
+    except AssertionError:
+        # XXX: AssertionError: Config has to be initialized with question_encoder and generator config
+        tokenizer = tokenizer_class.from_pretrained(os.path.join(opts.pretrained_model_path, "vocab.txt"), do_lower_case=opts.do_lower_case)
+    if opts.do_train or opts.do_check:
+        train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
+                                    tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+    if opts.do_train or opts.do_eval:
+        dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
+                                    tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+    if opts.do_predict:
+        test_dataset  = load_dataset(data_class, process_class, opts.test_input_file, opts.data_dir, "test",
+                                    tokenizer, opts.test_max_seq_length, opts.context_size, opts.max_span_length,
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
     if stanza_nlp is not None and train_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
         del stanza_nlp
-    opts.num_labels = train_dataset.num_labels
     opts.label2id = data_class.label2id()
     opts.id2label = data_class.id2label()
+    opts.num_labels = len(opts.label2id)
 
     # model
     logger.info("initializing model and config")
     config, unused_kwargs = config_class.from_pretrained(
         opts.pretrained_model_path, return_unused_kwargs=True,
         num_labels=opts.num_labels, id2label=opts.id2label, label2id=opts.label2id,
-        conditional=any(isinstance(processor, ConditionalProcessExample2Feature) 
-            for processor in train_dataset.process_piplines),
+        conditional=False,
         classifier_dropout=opts.classifier_dropout, 
         use_last_n_layers=opts.use_last_n_layers,
         agg_last_n_layers=opts.agg_last_n_layers,
@@ -1929,6 +1972,7 @@ def main(opts):
         focal_alpha=opts.focal_alpha,
         decode_thresh=opts.decode_thresh,
         do_lstm=opts.do_lstm, 
+        num_lstm_layers=opts.num_lstm_layers,
         do_projection=opts.do_projection,
         do_co_attention=opts.do_co_attention, 
         do_cln=opts.do_cln, 
@@ -1955,12 +1999,10 @@ def main(opts):
             else:
                 tokens = example["text"]
             example["entities"] = []
-            for entity in entities:                 # entity
-                example["entities"].append([])
-                for start, end, label in entity:    # span
-                    example["entities"][-1].append(
-                        (start, end, label, tokens[start: end])
-                    )
+            for start, end, label in entities:      # entity
+                example["entities"].append(
+                    (start, end, label, tokens[start: end])
+                )
             updated.append(example)
         return updated
 
@@ -1990,16 +2032,11 @@ def main(opts):
         model.syntactic_upos_embeddings.weight.data.zero_()
 
     # trainer
-    logger.info("initializing traniner")
+    logger.info("initializing trainer")
     metrics = [
-        SequenceLabelingScoreEntity({label.split("-")[1] for label in \
-            data_class.get_labels() if label not in ["O", "II-O"]}, "micro", entity_type="all"),
-        # SequenceLabelingScoreEntity({label.split("-")[1] for label in \
-        #     data_class.get_labels() if label not in ["O", "II-O"]}, "micro", entity_type="contiguous"),
-        # SequenceLabelingScoreEntity({label.split("-")[1] for label in \
-        #     data_class.get_labels() if label not in ["O", "II-O"]}, "micro", entity_type="discontinuous"),
-        # SequenceLabelingScoreSpan({label for label in \
-        #     data_class.get_labels() if label not in ["O",]}, average="micro")
+        SequenceLabelingScoreEntity({label for label in data_class.get_labels() \
+            if label not in ["O",]}, "micro", entity_type="all"),
+        SequenceLabelingScoreEntity({"_"}, "micro", entity_type="without_label"),
     ]
     trainer = Trainer(opts=opts, model=model, metrics=metrics, logger=logger)
 
@@ -2027,50 +2064,28 @@ def main(opts):
             char2token = ProcessConvertLevel(tokenizer, "char2token", lang="zh")
             token2char = ProcessConvertLevel(tokenizer, "token2char", lang="zh")
             results = load_pickle(os.path.join(checkpoint, f"dev_eval_results.pkl"))
+
             entities = list(chain(*[batch["groundtruths"] for batch in results]))
             examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
             with open(os.path.join(checkpoint, "groundtruths.json"), "w") as f:
                 for example in examples:
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
-            entities = list(chain(*[batch["predictions"] for batch in results]))
             with open(os.path.join(checkpoint, "groundtruths.span.jsonl"), "w") as f:
                 for example in examples:
                     text = example["text"]
                     sent_start, sent_end = example["sent_start"], example["sent_end"]
                     dummy = dict(text=text, entities=[[(sent_start, sent_end, "_", text)]])
                     example["sent_start"], example["sent_end"] = char2token(dummy)["entities"][0][0][:2]
-                    # try:
-                    #     example["text"] = tokenizer.tokenize(example["text"])
-                    #     example = token2char(example)
-                    # except:
-                    #     # import pdb; pdb.set_trace()
-                    #     continue    # FIXME: BERT分词器空格问题会出错
                     example["text"] = example["text"][example["sent_start"]: example["sent_end"]]
-                    for i, entity in enumerate(example["entities"]):
-                        for j, (start, end, label, string) in enumerate(entity):
-                            example["entities"][i][j] = (
-                                start - example["sent_start"],
-                                end - example["sent_start"],
-                                label, string,
-                            )
                     text = "".join(example["text"])
-                    entities_span = []
-                    for entity in example["entities"]:
-                        num_spans = len(entity)
-                        entity = sorted(entity, key=lambda x: (x[0], x[1]))
-                        for i, (start, end, label, string) in enumerate(entity):
-                            start_prefix = "B" if i == 0 else "I"
-                            end_prefix = "E" if i == num_spans - 1 else "I"
-                            prefix = start_prefix + end_prefix
-                            label = prefix + "-" + label
-                            entities_span.append((start, end, label, text[start: end]))
-                        for span_a, span_b in zip(entity[:-1], entity[1:]):
-                            start, end = span_a[1], span_b[0]
-                            label = "II" + "-" + "O"
-                            entities_span.append((start, end, label, text[start: end]))
+                    entities = []
+                    for i, (start, end, label, string) in enumerate(example["entities"]):
+                        entities.append((start, end, label, text[start: end]))
                     example["text"] = text
-                    example["entities"] = entities_span
+                    example["entities"] = entities
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
+
+            entities = list(chain(*[batch["predictions"] for batch in results]))
             examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
             with open(os.path.join(checkpoint, "evaluations.json"), "w") as f:
                 for example in examples:
@@ -2081,37 +2096,13 @@ def main(opts):
                     sent_start, sent_end = example["sent_start"], example["sent_end"]
                     dummy = dict(text=text, entities=[[(sent_start, sent_end, "_", text)]])
                     example["sent_start"], example["sent_end"] = char2token(dummy)["entities"][0][0][:2]
-                    # try:
-                    #     example["text"] = tokenizer.tokenize(example["text"])
-                    #     example = token2char(example)
-                    # except:
-                    #     # import pdb; pdb.set_trace()
-                    #     continue    # FIXME: BERT分词器空格问题会出错
                     example["text"] = example["text"][example["sent_start"]: example["sent_end"]]
-                    for i, entity in enumerate(example["entities"]):
-                        for j, (start, end, label, string) in enumerate(entity):
-                            example["entities"][i][j] = (
-                                start - example["sent_start"],
-                                end - example["sent_start"],
-                                label, string,
-                            )
                     text = "".join(example["text"])
-                    entities_span = []
-                    for entity in example["entities"]:
-                        num_spans = len(entity)
-                        entity = sorted(entity, key=lambda x: (x[0], x[1]))
-                        for i, (start, end, label, string) in enumerate(entity):
-                            start_prefix = "B" if i == 0 else "I"
-                            end_prefix = "E" if i == num_spans - 1 else "I"
-                            prefix = start_prefix + end_prefix
-                            label = prefix + "-" + label
-                            entities_span.append((start, end, label, text[start: end]))
-                        for span_a, span_b in zip(entity[:-1], entity[1:]):
-                            start, end = span_a[1], span_b[0]
-                            label = "II" + "-" + "O"
-                            entities_span.append((start, end, label, text[start: end]))
+                    entities = []
+                    for i, (start, end, label, string) in enumerate(example["entities"]):
+                        entities.append((start, end, label, text[start: end]))
                     example["text"] = text
-                    example["entities"] = entities_span
+                    example["entities"] = entities
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
 
     if opts.do_predict:
@@ -2132,9 +2123,28 @@ def main(opts):
             results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
             entities = list(chain(*[batch["predictions"] for batch in results]))
             examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[0])
-            with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
-                for example in examples:
-                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
+            # with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
+            #     for example in examples:
+            #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
+            # 保存为提交格式
+            # post_process = ProcessPostProcess()
+            with open(os.path.join(checkpoint, "predictions.txt"), "w") as f:
+                for example_no, example in enumerate(examples):
+                    # TODO: 后处理，解决标签冲突问题
+                    # example = post_process(example)
+                    tokens = example["text"]
+                    ner_tags = ["O"] * len(example["text"])
+                    for start, end, label, string in example["entities"]:
+                        for i in range(start, end):
+                            if i == start:
+                                tag = f"B-{label}"
+                            else:
+                                tag = f"I-{label}"
+                            if ner_tags[i] != "O" and ner_tags[i] != tag:
+                                logger.info(f"Label Conflict occurs at {i}, current: {example_no}/{ner_tags[i]}, new: {tag}")
+                            ner_tags[i] = tag
+                    for token, tag in zip(tokens, ner_tags):
+                        f.write(f"{token} {tag}\n")
 
     if opts.do_check:
         # check dataset & decode function
@@ -2169,7 +2179,7 @@ def main(opts):
                 
             # 解码标签
             offset_mapping = feature["offset_mapping"].cpu().numpy().tolist()
-            _, decodes = ModelForSpanClassification.decode(
+            decodes = ModelForSpanClassification.decode(
                 batch["labels"], batch["spans"], batch["spans_mask"],
                 opts.decode_thresh, opts.label2id, opts.id2label, is_logits=False)      # token level
             decodes = decodes[0]    # batch_size = 1
