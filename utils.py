@@ -83,6 +83,8 @@ def get_spans_bio(tags, id2label=None):
             chunk[1] = indx
             chunk[2] = indx     # FIXED: 该函数无法提取由"B-X"标记的单个token实体
             chunk[0] = tag.split('-')[1]
+            if indx == len(tags) - 1:
+                chunks.append(chunk)
         elif tag.startswith('I-') and chunk[1] != -1:
             _type = tag.split('-')[1]
             if _type == chunk[0]:

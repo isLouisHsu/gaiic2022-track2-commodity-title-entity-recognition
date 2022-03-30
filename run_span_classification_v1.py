@@ -58,6 +58,7 @@ from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
 from torchblocks.utils.paths import find_all_checkpoints
 from torchblocks.utils.seed import seed_everything
 from tokenization_bert_zh import SPACE_TOKEN, BertTokenizerZh
+from utils import get_spans_bio
 
 IGNORE_INDEX = -100
 Span = NewType("Span", Tuple[int, int, str])
@@ -923,7 +924,7 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         ),
     ]
     return data_class(data_name, data_dir, data_type, process_piplines, 
-        context_size=context_size, max_examples=None, use_cache=True, **kwargs) # TODO: use_cache
+        context_size=context_size, use_cache=True, **kwargs) # TODO: use_cache
 
 
 class CoAttention(nn.Module):
@@ -1248,12 +1249,14 @@ class SpanClassificationHead(nn.Module):
             probas = logits_or_labels.softmax(dim=-1)
             probas[..., other_id] = torch.where(probas[..., other_id] < thresh, 
                 torch.zeros_like(probas[..., other_id]), probas[..., other_id])
-            probas, labels = probas.max(dim=-1)
+            _, labels = probas.max(dim=-1)
+            probas = 1 - probas[..., other_id]  # 是实体的概率
         else:
             probas, labels = torch.ones_like(logits_or_labels), logits_or_labels    # (batch_size, sequence_length)
 
-        labels = [[id2label.get(id, "O") for id in ids] for ids in labels.cpu().numpy().tolist()]
         batch_size = logits_or_labels.size(0)
+        labels = [[id2label.get(id, "O") for id in ids] for ids in labels.cpu().numpy().tolist()]
+        probas = probas.cpu().numpy().tolist()
         spans = spans.cpu().numpy().tolist()
         spans_mask = spans_mask.cpu().numpy().tolist()
 
@@ -1261,18 +1264,71 @@ class SpanClassificationHead(nn.Module):
         for i in range(batch_size):
             entities = []
             sent_start = float("inf")
-            for span, mask, label in zip(spans[i], spans_mask[i], labels[i]):
+            for span, mask, label, proba in zip(spans[i], spans_mask[i], labels[i], probas[i]):
                 if mask == 0: break
                 start, end = span       # 左闭右闭
                 sent_start = min(sent_start, start)
                 if label == "O": continue
                 start -= sent_start; end -= sent_start
-                entities.append((start, end + 1, label))   # 左闭右开
-            entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
+                entities.append((start, end + 1, label, proba))   # 左闭右开
+            # entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
+            # entities = cls.drop_overlap_baseline(entities)
+            entities = cls.drop_overlap_nms(entities)
+            entities = [entity[:-1] for entity in entities]
             decode_entities.append(entities)
 
         return decode_entities
+    
+    @classmethod
+    def drop_overlap_baseline(cls, entities):
+        if len(entities) == 0: return []
+        entities = sorted(entities, key=lambda x: (x[0], x[0] - x[1]))
+        sequence_length = max([entity[1] for entity in entities])
+        ner_tags = entities_to_ner_tags(sequence_length, entities)
+        spans = get_spans_bio(ner_tags)
+        entities = [(start, end + 1, label, 0.0) for label, start, end in spans]
+        return entities
+    
+    @classmethod
+    def drop_overlap_nms(cls, entities):
+        """
+        Parameters
+        ----------
+            entities: List[Tuple[int, int, str, float]]
 
+        Return
+        ------
+            entities: List[Tuple[int, int, str, float]]
+
+        Notes
+        -----
+            - 简化iou计算，仅计算重叠长度；
+            - 未考虑标签，若需对同类别实体去重，则在传入该函数前处理；
+        """
+        if len(entities) == 0: return []
+        
+        X = np.array(entities)
+        starts = X[:, 0].astype(np.int)
+        ends   = X[:, 1].astype(np.int)
+        scores = X[:, 3].astype(np.float)
+        order = scores.argsort()[::-1]
+
+        keep = []
+        while order.size > 0:
+            i = order[0]
+            # 保留得分最高的一个
+            keep.append(i)
+            # 计算相交区间
+            starts_ = np.maximum(starts[i], starts[order[1:]])
+            ends_   = np.minimum(ends  [i], ends  [order[1:]])
+            # 计算相交长度
+            inter = np.maximum(0, ends_ - starts_)
+            # 保留不相交实体
+            indices = np.where(inter <= 0)[0]
+            order = order[indices + 1]
+        
+        entities = [entities[idx] for idx in keep]
+        return entities
 
 class SpanClassificationLoss(nn.Module):
 
@@ -1851,7 +1907,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine/gaiic_bert_hfl-chinese-roberta-wwm-ext-span-lr1e-5-wd0.01-dropout0.5-span15-e15-bs16x1-sinusoidal-biaffine_opts.json")
+    # sys.argv.append("outputs/gaiic_nezha_nezha-cn-base-span-v1-lr3e-5-wd0.01-dropout0.5-span15-e5-bs16x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-cn-base-span-v1-lr3e-5-wd0.01-dropout0.5-span15-e5-bs16x1-sinusoidal-biaffine-fgm1.0_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -1862,6 +1918,9 @@ def build_opts():
         group = parser.add_argument_group(title="user-defined", description="user-defined")
         group.add_argument("--do_check", action="store_true")
         group.add_argument("--labels", nargs="+", type=str, default=None)
+        group.add_argument("--max_train_examples", type=int, default=None)
+        group.add_argument("--max_eval_examples", type=int, default=None)
+        group.add_argument("--max_test_examples", type=int, default=None)
         group.add_argument("--context_size", type=int, default=0)
         group.add_argument("--classifier_dropout", type=float, default=0.1)
         group.add_argument("--use_last_n_layers", type=int, default=None)
@@ -1903,6 +1962,47 @@ def build_opts():
     
     return opts
 
+def update_example_entities(tokenizer, examples, entities, process):
+    assert len(examples) == len(entities)
+    updated = []
+    for example, entities in zip(examples, entities):
+        example = deepcopy(example)
+        if process is not None:
+            example = process(example)
+        if isinstance(example["text"], str):
+            tokens = tokenizer.tokenize(example["text"])
+        else:
+            tokens = example["text"]
+        example["entities"] = []
+        for start, end, label in entities:      # entity
+            example["entities"].append(
+                (start, end, label, tokens[start: end])
+            )
+        updated.append(example)
+    return updated
+
+def entities_to_ner_tags(sequence_length, entities):
+    ner_tags = ["O"] * sequence_length
+    for start, end, label, *_ in entities:
+        # >>> global pointer baseline >>>
+        # https://github.com/DataArk/GAIIC2022-Product-Title-Entity-Recognition-Baseline/blob/main/code/baseline.ipynb
+        if 'I' in ner_tags[start]:
+            continue
+        if 'B' in ner_tags[start] and 'O' not in ner_tags[end - 1]:
+            continue
+        if 'O' in ner_tags[start] and 'B' in ner_tags[end - 1]:
+            continue
+        # <<< global pointer baseline <<<
+        for i in range(start, end):
+            if i == start:
+                tag = f"B-{label}"
+            else:
+                tag = f"I-{label}"
+            if ner_tags[i] != "O" and ner_tags[i] != tag:
+                logger.info(f"Label Conflict occurs at {i}, current: {ner_tags[i]}, new: {tag}")
+            ner_tags[i] = tag
+    return ner_tags
+
 def main(opts):
 
     logger = Logger(opts=opts)
@@ -1939,15 +2039,15 @@ def main(opts):
     if opts.do_train or opts.do_check:
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
-                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_train_examples)
     if opts.do_train or opts.do_eval:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
                                     tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
-                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_eval_examples)
     if opts.do_predict:
         test_dataset  = load_dataset(data_class, process_class, opts.test_input_file, opts.data_dir, "test",
                                     tokenizer, opts.test_max_seq_length, opts.context_size, opts.max_span_length,
-                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels)
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_test_examples)
     if stanza_nlp is not None and train_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
         del stanza_nlp
     opts.label2id = data_class.label2id()
@@ -1984,27 +2084,9 @@ def main(opts):
     for key, value in unused_kwargs.items():
         setattr(config, key, value)  # FIXED: 默认`from_dict`中，只有config中有键才能设置值，这里强制设置
 
-    model = model_class.from_pretrained(opts.pretrained_model_path, config=config)
+    model = model_class.from_pretrained(opts.pretrained_model_path, config=config) \
+        if opts.do_train else model_class(config=config)
     model.to(opts.device)
-
-    def update_example_entities(tokenizer, examples, entities, process):
-        assert len(examples) == len(entities)
-        updated = []
-        for example, entities in zip(examples, entities):
-            example = deepcopy(example)
-            if process is not None:
-                example = process(example)
-            if isinstance(example["text"], str):
-                tokens = tokenizer.tokenize(example["text"])
-            else:
-                tokens = example["text"]
-            example["entities"] = []
-            for start, end, label in entities:      # entity
-                example["entities"].append(
-                    (start, end, label, tokens[start: end])
-                )
-            updated.append(example)
-        return updated
 
     if opts.use_sinusoidal_width_embedding:
         logger.info("Initializing sinusoidal width embedding")
@@ -2133,16 +2215,7 @@ def main(opts):
                     # TODO: 后处理，解决标签冲突问题
                     # example = post_process(example)
                     tokens = example["text"]
-                    ner_tags = ["O"] * len(example["text"])
-                    for start, end, label, string in example["entities"]:
-                        for i in range(start, end):
-                            if i == start:
-                                tag = f"B-{label}"
-                            else:
-                                tag = f"I-{label}"
-                            if ner_tags[i] != "O" and ner_tags[i] != tag:
-                                logger.info(f"Label Conflict occurs at {i}, current: {example_no}/{ner_tags[i]}, new: {tag}")
-                            ner_tags[i] = tag
+                    ner_tags = entities_to_ner_tags(len(example["text"]), example["entities"])
                     for token, tag in zip(tokens, ner_tags):
                         f.write(f"{token} {tag}\n")
 
