@@ -431,7 +431,22 @@ class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
                 entities = line["entities"]
             examples.append(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens)))
         return examples
+    
+    def process_example(self, example: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        for proc in self.process_piplines:
+            if proc is None: continue
+            if isinstance(proc, ProcessBaseDual):
+                example_b = self.select_another_example_randomly(self.examples, example)
+                example = proc(example, example_b)
+            else:
+                example = proc(example)
+        return example
 
+    def select_another_example_randomly(self, examples, example):
+        another = np.random.choice(examples)
+        while another["guid"] == example["guid"]:
+            another = np.random.choice(examples)
+        return another
 
 class LevelConvertorBase:
 
@@ -678,18 +693,272 @@ class ProcessMergeDiscontinuousSpans(ProcessBase):
         example["entities"] = entities
         return example
 
+class ProcessBaseDual(ProcessBase):
+    """ 用于处理两个example """
 
-class ProcessConcateRandomExamples(ProcessBase):
+    def __call__(self, example_a, example_b):
+        raise NotImplementedError('Method [__call__] should be implemented.')
+
+class ProcessConcateExamplesRandomly(ProcessBaseDual):
     """ 随机选择一个其他样本拼接，中间用[SEP]分隔 """
-    pass    # TODO:
+    
+    def __init__(self, sep_token="[SEP]", p=0.5):
+        self.sep_token = sep_token
+        self.p = p
+    
+    def __call__(self, example_a, example_b):
+        return self.process(example_a, example_b)
+    
+    def process(self, example_a, example_b):
+        example_a = deepcopy(example_a)
+        example_b = deepcopy(example_b)
+        is_replaced = False
+        if np.random.random() < self.p:
+            is_replaced = True
+            example_a, example_b = example_b, example_a
+        
+        guid = f"{example_a['guid']}|{example_b['guid']}"
+        text_a, text_b = example_a["text"], example_b["text"]
+        text = text_a + [self.sep_token] + text_b
+        
+        sep_id = len(text_a)
+        entities_a, entities_b = example_a["entities"], example_b["entities"]
+        entities = entities_a + [
+            [start + sep_id + 1, end + sep_id + 1, label, string]
+            for start, end, label, string in entities_b
+        ]
+
+        example = dict(guid=guid, text=text, entities=entities, sent_start=0, sent_end=len(text))
+        if "status" not in example:
+            example["status"] = dict()
+        example["status"][__class__] = dict(
+            is_replaced=is_replaced, 
+            sep_id=sep_id
+        )
+
+        import pdb; pdb.set_trace()
+        self.process_inv(example)
+
+        return example
+    
+    def process_inv(self, example):
+        example = deepcopy(example)
+        status = example.pop(__class__)
+        is_replaced = status["is_replaced"]
+        sep_id = status["sep_id"]
+
+        guid_a, guid_b = example["guid"].split("|")
+        text_a, text_b = example["text"][: sep_id], example["text"][sep_id + 1:]
+        entities_a, entities_b = [], []
+        for entity in example["entities"]:
+            start, end, label, string = entity
+            if start < sep_id:
+                entities_a.append(entity)
+            else:
+                start -= (sep_id + 1)
+                end   -= (sep_id + 1)
+                entities_a.append([start, end, label, string])
+        
+        example_a = dict(guid=guid_a, text=text_a, entities=entities_a, sent_start=0, sent_end=len(text_a))
+        example_b = dict(guid=guid_b, text=text_b, entities=entities_b, sent_start=0, sent_end=len(text_b))
+
+        if is_replaced:
+            example_a, example_b = example_b, example_a
+        
+        return example_a, example_b
 
 class ProcessDropRandomEntity(ProcessBase):
     """ 随机选择实体丢弃 """
+
+    def __init__(self, p=0.1):
+        self.p = p
+    
+    def __call__(self, example):
+        return self.process(example)
+
+    def process(self, example):
+        example = deepcopy(example)
+        text = example["text"]
+        entities = example["entities"]
+        num_entities = len(entities)
+
+        num_drop = int(np.round(num_entities * self.p))
+        if num_drop == 0: return example
+        dropped_indices = np.random.choice(
+            num_entities, size=num_drop, replace=False)
+
+        kept = []; dropped = []
+        flag = np.array([0] * len(text))
+        offset = np.array([0] * len(text))
+        for index in range(num_entities):
+            entity = entities[index]
+            if index in dropped_indices:
+                start, end, label, string = entity
+                offset[start: ] -= end - start
+                flag[start: end] = 1
+                dropped.append(entity)
+            else:
+                kept.append(entity)
+        
+        text = [t for t, f in zip(text, flag) if f == 0]
+        for i, (start, end, label, string) in enumerate(kept):
+            start += offset[start]
+            end   += offset[end-1]
+            kept[i] = [start, end, label, string]
+        
+        example["text"] = text
+        example["sent_start"] = 0
+        example["sent_end"] = len(text)
+        example["entities"] = kept
+        if "status" not in example:
+            example["status"] = dict()
+        example["status"][__class__] = dict(
+            flag=flag, 
+            offset=offset,
+            dropped=dropped,
+        )
+
+        import pdb; pdb.set_trace()
+        self.process_inv(example)
+
+        return example
+
+    def process_inv(self, example):
+        example = deepcopy(example)
+        status = example.pop(__class__)
+        flag = status["flag"]
+        offset = status["offset"]
+        dropped = status["dropped"]
+
+        ptr = 0
+        text = [None] * len(flag)
+        for i, f in enumerate(flag):
+            if f == 0:
+                text[i] = example["text"][ptr]
+                ptr += 1
+        for start, end, label, string in dropped:
+            text[start: end] = string
+        assert all([ch is not None for ch in text])
+
+        entities = []
+        for i, (start, end, label, string) in enumerate(example["entities"]):
+            start -= offset[start]
+            end   -= offset[end-1]
+            entities.append([start, end, label, string])
+        entities.extend(dropped)
+        entities = sorted(entities, key=lambda x: x[:2])
+
+        example["text"] = text
+        example["sent_start"] = 0
+        example["sent_end"] = len(text)
+        example["entities"] = entities
+
+        return example
+
+class ProcessMaskRandomEntity(ProcessBase):
+    """ 随机选择实体遮盖 """
+
+    def __init__(self, mask_token="[MASK]", p=0.1):
+        self.mask_token = mask_token
+        self.p = p
+    
+    def __call__(self, example):
+        return self.process(example)
+
+    def process(self, example):
+        example = deepcopy(example)
+        text = example["text"]
+        entities = example["entities"]
+        num_entities = len(entities)
+
+        num_mask = int(np.round(num_entities * self.p))
+        if num_mask == 0: return example
+        masked_indices = np.random.choice(
+            num_entities, size=num_mask, replace=False)
+        
+        kept = []; masked = []
+        for index in range(num_entities):
+            entity = entities[index]
+            if index in masked_indices:
+                start, end, label, string = entity
+                text[start: end] = [self.mask_token] * (end - start)
+                masked.append(entity)
+            else:
+                kept.append(entity)
+
+        example["text"] = text
+        example["entities"] = kept
+        if "status" not in example:
+            example["status"] = dict()
+        example["status"][__class__] = dict(
+            masked=masked, 
+        )
+
+        import pdb; pdb.set_trace()
+        self.process_inv(example)
+
+        return example
+
+    def process_inv(self, example):
+        example = deepcopy(example)
+        status = example.pop(__class__)
+        masked = status["masked"]
+
+        for entity in masked:
+            start, end, label, string = entity
+            example["text"][start: end] = string
+            example["entities"].append(entity)
+        assert all([ch != self.mask_token for ch in example["text"]])
+
+        return example
+
     pass    # TODO:
 
-class ProcessPostProcess(ProcessBase):
+class ProcessRandomMask(ProcessBase):
     """ 后处理 """
-    pass    # TODO:
+
+    def __init__(self, p=0.1):
+        self.p = p
+    
+    def __call__(self, example):
+        return self.process(example)
+
+    def process(self, example):
+        example = deepcopy(example)
+
+        # TODO:
+        import pdb; pdb.set_trace()
+        self.process_inv(example)
+
+        return example
+
+    def process_inv(self, example):
+        example = deepcopy(example)
+        # TODO:
+        return example
+
+class ProcessSynonymReplace(ProcessBase):
+    """ 后处理 """
+
+    def __init__(self, p=0.1):
+        self.p = p
+    
+    def __call__(self, example):
+        return self.process(example)
+
+    def process(self, example):
+        example = deepcopy(example)
+
+        # TODO:
+        import pdb; pdb.set_trace()
+        self.process_inv(example)
+
+        return example
+
+    def process_inv(self, example):
+        example = deepcopy(example)
+        # TODO:
+        return example
 
 class ProcessExample2Feature(ProcessBase):
 
@@ -732,7 +1001,8 @@ class ProcessExample2Feature(ProcessBase):
 
         if skip_indices is not None:
             for index in skip_indices:
-                pass    # TODO:
+                mask = (index >= spans[:, 0]) & (index <= spans[:, 1])
+                spans = spans[~mask]
         
         spans = [tuple(span) for span in spans.tolist()]
         spans_mask = np.ones(len(spans), dtype=np.int).tolist()
@@ -811,8 +1081,8 @@ class ProcessExample2Feature(ProcessBase):
         sent_end = example.get("sent_end", len(tokens))
 
         # encode spans
-        # skip_indices = [idx for idx, token in enumerate(tokens) if token in self.tokenizer.all_special_tokens_extended]
-        spans, spans_mask = self._encode_spans(input_length, sent_start, sent_end)
+        skip_indices = [idx for idx, token in enumerate(tokens) if token in self.tokenizer.all_special_tokens_extended]
+        spans, spans_mask = self._encode_spans(input_length, sent_start, sent_end, skip_indices)
         inputs["spans"], inputs["spans_mask"] = torch.tensor(spans), torch.tensor(spans_mask)
 
         # encode pos & depparse
@@ -924,7 +1194,7 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         ),
     ]
     return data_class(data_name, data_dir, data_type, process_piplines, 
-        context_size=context_size, use_cache=True, **kwargs) # TODO: use_cache
+        context_size=context_size, use_cache=False, **kwargs)
 
 
 class CoAttention(nn.Module):
@@ -2209,11 +2479,8 @@ def main(opts):
             #     for example in examples:
             #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
             # 保存为提交格式
-            # post_process = ProcessPostProcess()
             with open(os.path.join(checkpoint, "predictions.txt"), "w") as f:
                 for example_no, example in enumerate(examples):
-                    # TODO: 后处理，解决标签冲突问题
-                    # example = post_process(example)
                     tokens = example["text"]
                     ner_tags = entities_to_ner_tags(len(example["text"]), example["entities"])
                     for token, tag in zip(tokens, ner_tags):

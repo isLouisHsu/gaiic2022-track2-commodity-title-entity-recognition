@@ -4,6 +4,17 @@
 
 ## 更新
 
+### 2022/3/31
+1. 新增数据增强相关，待测试：
+    - `ProcessBaseDual`
+    - `ProcessConcateExamplesRandomly`
+    - `ProcessDropRandomEntity`
+    - `ProcessMaskRandomEntity`
+    - `ProcessRandomMask`(未实现)
+    - `ProcessSynonymReplace`(未实现)
+        用[腾讯预训练词向量](https://ai.tencent.com/ailab/nlp/zh/embedding.html)求近义词
+2. `Nezha`代码完善
+
 ### 2022/3/30
 
 1. 尝试去重策略

@@ -175,8 +175,6 @@ class NeZhaSelfAttention(nn.Module):
                 "The hidden size (%d) is not a multiple of the number of attention "
                 "heads (%d)" % (config.hidden_size, config.num_attention_heads)
             )
-        self.output_attentions = config.output_attentions
-
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
@@ -196,12 +194,13 @@ class NeZhaSelfAttention(nn.Module):
         return x.permute(0, 2, 1, 3)
 
     def forward(
-            self,
-            hidden_states,
-            attention_mask=None,
-            head_mask=None,
-            encoder_hidden_states=None,
-            encoder_attention_mask=None,
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        output_attentions=False,
     ):
         mixed_query_layer = self.query(hidden_states)
 
@@ -268,7 +267,7 @@ class NeZhaSelfAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
 
-        outputs = (context_layer, attention_probs) if self.output_attentions else (context_layer,)
+        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
         return outputs
 
 
@@ -301,15 +300,21 @@ class NeZhaAttention(nn.Module):
         self.pruned_heads = self.pruned_heads.union(heads)
 
     def forward(
-            self,
-            hidden_states,
-            attention_mask=None,
-            head_mask=None,
-            encoder_hidden_states=None,
-            encoder_attention_mask=None,
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        output_attentions=False,
     ):
         self_outputs = self.self(
-            hidden_states, attention_mask, head_mask, encoder_hidden_states, encoder_attention_mask
+            hidden_states, 
+            attention_mask, 
+            head_mask, 
+            encoder_hidden_states, 
+            encoder_attention_mask,
+            output_attentions,
         )
         attention_output = self.output(self_outputs[0], hidden_states)
         outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
@@ -327,14 +332,20 @@ class NeZhaLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(
-            self,
-            hidden_states,
-            attention_mask=None,
-            head_mask=None,
-            encoder_hidden_states=None,
-            encoder_attention_mask=None,
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        output_attentions=False,
     ):
-        self_attention_outputs = self.attention(hidden_states, attention_mask, head_mask)
+        self_attention_outputs = self.attention(
+            hidden_states, 
+            attention_mask, 
+            head_mask, 
+            output_attentions=output_attentions,
+        )
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
@@ -354,40 +365,48 @@ class NeZhaLayer(nn.Module):
 class NeZhaEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
         self.layer = nn.ModuleList([NeZhaLayer(config) for _ in range(config.num_hidden_layers)])
 
     def forward(
-            self,
-            hidden_states,
-            attention_mask=None,
-            head_mask=None,
-            encoder_hidden_states=None,
-            encoder_attention_mask=None,
-            return_dict=False,
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        output_attentions=False,
+        output_hidden_states=False,
+        return_dict=False,
     ):
-        all_hidden_states = ()
-        all_attentions = ()
+        all_hidden_states = () if output_hidden_states else None
+        all_self_attentions = () if output_attentions else None
+        all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
+
         for i, layer_module in enumerate(self.layer):
-            if self.output_hidden_states:
+            if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
             layer_outputs = layer_module(
-                hidden_states, attention_mask, head_mask[i], encoder_hidden_states, encoder_attention_mask
+                hidden_states, 
+                attention_mask, 
+                head_mask[i], 
+                encoder_hidden_states, 
+                encoder_attention_mask,
+                output_attentions,
             )
             hidden_states = layer_outputs[0]
-            if self.output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
+            if output_attentions:
+                all_self_attentions = all_self_attentions + (layer_outputs[1],)
         # Add last layer
-        if self.output_hidden_states:
+        if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
         if not return_dict:
             outputs = (hidden_states,)
-            if self.output_hidden_states:
+            if output_hidden_states:
                 outputs = outputs + (all_hidden_states,)
-            if self.output_attentions:
-                outputs = outputs + (all_attentions,)
+            if output_attentions:
+                outputs = outputs + (all_self_attentions,)
             return outputs  # last-layer hidden state, (all hidden states), (all attentions)
         
         return BaseModelOutputWithPastAndCrossAttentions(
@@ -395,9 +414,9 @@ class NeZhaEncoder(nn.Module):
             # past_key_values=next_decoder_cache,
             past_key_values=None,
             hidden_states=all_hidden_states,
-            attentions=all_attentions if self.output_attentions else None,
+            attentions=all_self_attentions if output_attentions else None,
             # cross_attentions=all_cross_attentions,
-            cross_attentions=None,
+            cross_attentions=all_cross_attentions,
         )
 
 
@@ -469,18 +488,20 @@ class NeZhaModel(NeZhaPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     def forward(
-            self,
-            input_ids=None,
-            attention_mask=None,
-            token_type_ids=None,
-            head_mask=None,
-            position_ids=None,
-            inputs_embeds=None,
-            encoder_hidden_states=None,
-            encoder_attention_mask=None,
-            output_attentions=None,
-            output_hidden_states=None,
-            return_dict=False,
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        past_key_values=None,
+        # use_cache=None,
+        output_attentions=False,
+        output_hidden_states=False,
+        return_dict=None,
     ):
         r"""
     Return:
@@ -522,7 +543,16 @@ class NeZhaModel(NeZhaPreTrainedModel):
         last_hidden_states = outputs[0]  # The last hidden-state is the first element of the output tuple
 
         """
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        # if self.config.is_decoder:
+        #     use_cache = use_cache if use_cache is not None else self.config.use_cache
+        # else:
+        #     use_cache = False
 
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
@@ -573,6 +603,9 @@ class NeZhaModel(NeZhaPreTrainedModel):
             head_mask=head_mask,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_extended_attention_mask,
+            # use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
         sequence_output = encoder_outputs[0]
@@ -580,9 +613,6 @@ class NeZhaModel(NeZhaPreTrainedModel):
 
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]
-
-        self.output_attentions = self.config.output_attentions
-        self.output_hidden_states = self.config.output_hidden_states
 
         return BaseModelOutputWithPoolingAndCrossAttentions(
             last_hidden_state=sequence_output,
@@ -610,15 +640,15 @@ class NeZhaForPreTraining(NeZhaPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     def forward(
-            self,
-            input_ids=None,
-            attention_mask=None,
-            token_type_ids=None,
-            head_mask=None,
-            position_ids=None,
-            inputs_embeds=None,
-            labels=None,
-            next_sentence_label=None,
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        head_mask=None,
+        position_ids=None,
+        inputs_embeds=None,
+        labels=None,
+        next_sentence_label=None,
     ):
         r"""
         masked_lm_labels (``torch.LongTensor`` of shape ``(batch_size, sequence_length)``, `optional`, defaults to :obj:`None`):
@@ -705,19 +735,19 @@ class NeZhaForMaskedLM(NeZhaPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     def forward(
-            self,
-            input_ids=None,
-            attention_mask=None,
-            token_type_ids=None,
-            head_mask=None,
-            position_ids=None,
-            inputs_embeds=None,
-            encoder_hidden_states=None,
-            encoder_attention_mask=None,
-            output_attentions=None,
-            output_hidden_states=None,
-            labels=None,
-            return_dict=None,
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        head_mask=None,
+        position_ids=None,
+        inputs_embeds=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        output_attentions=False,
+        output_hidden_states=False,
+        labels=None,
+        return_dict=None,
     ):
         r"""
         masked_lm_labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
