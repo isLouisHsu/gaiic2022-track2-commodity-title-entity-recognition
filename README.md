@@ -4,6 +4,17 @@
 
 ## 更新
 
+### 2022/4/1
+1. 优化`tokenization_bert_zh.py/BasicTokenizerZh`；
+2. 优化预训练：
+    - `prepare_corpus.py`训练语料添加测试集；
+    - `run_chinese_ref.py`换用`BasicTokenizerZh`，采用`LTP`分词；
+    - 生成预训练数据`data/processed/pretrain-v1/`；
+    - 预训练`nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-30k-warmup1k-bs32x2`；
+3. 新增数据增强
+    - `generate_word_synonyms_map_from_tencent_ailab_embedding.py`；
+    - `run_span_classification_v1.py`新增`AugmentSynonymReplace`，功能待实现；
+
 ### 2022/3/31
 1. 新增数据增强相关，待测试：
     - `ProcessBaseDual`
