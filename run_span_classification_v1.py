@@ -1628,6 +1628,34 @@ class SpanClassificationLoss(nn.Module):
             loss = loss.sum()
         return loss
 
+class SpanClassificationRDropLoss(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+    
+    def forward(p, q, mask=None):
+        
+        import pdb; pdb.set_trace()
+
+        batch_size, num_spans, num_labels = p.size()
+        if mask is None:
+            mask = torch.ones(batch_size, num_spans, dtype=torch.bool, device=p.device)
+        mask = (mask > 0).unsqueeze(-1).expand(batch_size, num_spans, num_labels)
+        
+        p_loss = F.kl_div(F.log_softmax(p, dim=-1), F.softmax(q, dim=-1), reduction='none')
+        q_loss = F.kl_div(F.log_softmax(q, dim=-1), F.softmax(p, dim=-1), reduction='none')
+        
+        # mask is for seq-level tasks
+        p_loss.masked_fill_(~mask, 0.)
+        q_loss.masked_fill_(~mask, 0.)
+
+        # You can choose whether to use function "sum" and "mean" depending on your task
+        p_loss = p_loss.mean()
+        q_loss = q_loss.mean()
+
+        loss = (p_loss + q_loss) / 2
+        return loss
+    
 
 class SpanClassificationOutput(ModelOutput):
 
@@ -1684,8 +1712,45 @@ class ModelForSpanClassification(PreTrainedModel):
         spans=None,
         spans_mask=None,
         labels=None,
+        rdrop_forward=False,
         return_dict=None,
     ):
+        if rdrop_forward and self.training:
+            outputs1 = self(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                syntactic_upos_ids=syntactic_upos_ids,
+                conditional_ids=conditional_ids,
+                spans=spans,
+                spans_mask=spans_mask,
+                labels=labels,
+                rdrop_forward=False,
+                return_dict=return_dict,
+            )
+            outputs2 = self(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                syntactic_upos_ids=syntactic_upos_ids,
+                conditional_ids=conditional_ids,
+                spans=spans,
+                spans_mask=spans_mask,
+                labels=labels,
+                rdrop_forward=False,
+                return_dict=return_dict,
+            )
+            rdrop_loss_func = SpanClassificationRDropLoss()
+            loss = (outputs1["loss"] + outputs2["loss"]) / 2. + \
+                self.config.rdrop_weight * rdrop_loss_func(
+                    outputs1["logits"], outputs2["logits"], spans_mask)
+            return SpanClassificationOutput(
+                loss=loss,
+                logits=outputs1["logits"],
+                predictions=outputs1["predictions"],
+                groundtruths=outputs1["groundtruths"],
+            )
+
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         output_hidden_states = self.config.use_last_n_layers is not None
 
@@ -1697,6 +1762,8 @@ class ModelForSpanClassification(PreTrainedModel):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
+
+            # self.base_model.encoder(outputs["last_hidden_state"], attention_mask) # AlBert Style
 
             if self.config.use_last_n_layers is not None:
                 last_hidden_state = outputs["hidden_states"]

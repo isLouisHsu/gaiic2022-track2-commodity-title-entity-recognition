@@ -12,7 +12,7 @@ wv_from_text = KeyedVectors.load_word2vec_format(wv_file, binary=False)
 
 # %%
 labeled_file = "data/raw/train_data/train.txt"
-examples = generate_examples(create_examples(labeled_file, "train"))
+examples = create_examples(generate_examples(labeled_file), "train")
 
 #%%
 words = set()
@@ -30,7 +30,7 @@ for example in examples:
 #%%
 word_synonyms_map = defaultdict(list)
 for word in tqdm(words, total=len(words)):
-    synonyms = wv_from_text.most_similar_cosmul(positive=[word], negative=None, topk=20)
+    synonyms = wv_from_text.most_similar_cosmul(positive=[word], negative=None, topn=20)
     word_synonyms_map[word].extend(synonyms)
 
 #%%
