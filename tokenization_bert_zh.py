@@ -1,95 +1,102 @@
 import re
 import logging
 from typing import *
-from transformers import BertTokenizer
-from transformers.tokenization_utils_base import TextInput, AddedToken
+from transformers.models.bert.tokenization_bert import (
+    BasicTokenizer, 
+    BertTokenizer, 
+    whitespace_tokenize,
+)
 
 logger = logging.getLogger(__name__)
-# SPACE_TOKEN = "[UNK]"
-SPACE_TOKEN = "[unused1]"
+
+class BasicTokenizerZh(BasicTokenizer):
+    """ 中文预训练模型分词器基于BERT，会将句子中出现的空白符删除 """
+    
+    def __init__(self, space_token="[unused1]", do_lower_case=True, never_split=None, tokenize_chinese_chars=True, strip_accents=None):
+        super().__init__(do_lower_case=do_lower_case, never_split=never_split, tokenize_chinese_chars=tokenize_chinese_chars, strip_accents=strip_accents)
+        self.space_token = space_token
+
+    def tokenize(self, text, never_split=None):
+        """
+        Basic Tokenization of a piece of text. Split on "white spaces" only, for sub-word tokenization, see
+        WordPieceTokenizer.
+
+        Args:
+            never_split (`List[str]`, *optional*)
+                Kept for backward compatibility purposes. Now implemented directly at the base class level (see
+                [`PreTrainedTokenizer.tokenize`]) List of token not to split.
+        """
+        # union() returns a new set by concatenating the two sets.
+        never_split = self.never_split.union(set(never_split)) if never_split else self.never_split
+        text = self._clean_text(text)
+
+        # This was added on November 1st, 2018 for the multilingual and Chinese
+        # models. This is also applied to the English models now, but it doesn't
+        # matter since the English models were not trained on any Chinese data
+        # and generally don't have any Chinese data in them (there are Chinese
+        # characters in the vocabulary because Wikipedia does have some Chinese
+        # words in the English Wikipedia.).
+        text = re.sub(r" ", self.space_token, text)
+        if self.tokenize_chinese_chars:
+            text = self._tokenize_chinese_chars(text)
+        text = re.sub(re.escape(self.space_token), " " + self.space_token + " ", text)
+        orig_tokens = whitespace_tokenize(text)
+        split_tokens = []
+        for token in orig_tokens:
+            if token not in never_split:
+                if self.do_lower_case:
+                    token = token.lower()
+                    if self.strip_accents is not False:
+                        token = self._run_strip_accents(token)
+                elif self.strip_accents:
+                    token = self._run_strip_accents(token)
+            split_tokens.extend(self._run_split_on_punc(token, never_split))
+
+        output_tokens = whitespace_tokenize(" ".join(split_tokens))
+        return output_tokens
 
 class BertTokenizerZh(BertTokenizer):
 
-    def tokenize(self, text: TextInput, **kwargs) -> List[str]:
-        """
-        Converts a string in a sequence of tokens, using the tokenizer.
+    def __init__(
+        self,
+        vocab_file,
+        do_lower_case=True,
+        never_split=None,
+        unk_token="[UNK]",
+        sep_token="[SEP]",
+        pad_token="[PAD]",
+        cls_token="[CLS]",
+        mask_token="[MASK]",
+        space_token="[unused1]",
+        tokenize_chinese_chars=True,
+        strip_accents=None,
+        **kwargs
+    ):
+        if never_split is None:
+            never_split = [space_token,]
+        else:
+            never_split.append(space_token)
 
-        Split in words for word-based vocabulary or sub-words for sub-word-based vocabularies
-        (BPE/SentencePieces/WordPieces). Takes care of added tokens.
-
-        Args:
-            text (`str`):
-                The sequence to be encoded.
-            **kwargs (additional keyword arguments):
-                Passed along to the model-specific `prepare_for_tokenization` preprocessing method.
-
-        Returns:
-            `List[str]`: The list of tokens.
-        """
-        # Simple mapping string => AddedToken for special tokens with specific tokenization behaviors
-        all_special_tokens_extended = dict(
-            (str(t), t) for t in self.all_special_tokens_extended if isinstance(t, AddedToken)
+        super().__init__(
+            vocab_file=vocab_file,
+            do_lower_case=do_lower_case,
+            do_basic_tokenize=True,
+            never_split=never_split,
+            unk_token=unk_token,
+            sep_token=sep_token,
+            pad_token=pad_token,
+            cls_token=cls_token,
+            mask_token=mask_token,
+            tokenize_chinese_chars=tokenize_chinese_chars,
+            strip_accents=strip_accents,
+            additional_special_tokens=[space_token,],
+            **kwargs
         )
 
-        text, kwargs = self.prepare_for_tokenization(text, **kwargs)
+        self.basic_tokenizer = BasicTokenizerZh(
+            do_lower_case=do_lower_case,
+            never_split=never_split,
+            tokenize_chinese_chars=tokenize_chinese_chars,
+            strip_accents=strip_accents,
+        )
 
-        if kwargs:
-            logger.warning(f"Keyword arguments {kwargs} not recognized.")
-
-        # TODO: should this be in the base class?
-        if hasattr(self, "do_lower_case") and self.do_lower_case:
-            # convert non-special tokens to lowercase
-            escaped_special_toks = [
-                re.escape(s_tok) for s_tok in (self.unique_no_split_tokens + self.all_special_tokens)
-            ]
-            pattern = r"(" + r"|".join(escaped_special_toks) + r")|" + r"(.+?)"
-            text = re.sub(pattern, lambda m: m.groups()[0] or m.groups()[1].lower(), text)
-
-        no_split_token = set(self.unique_no_split_tokens + [SPACE_TOKEN])   # 新增`SPACE_TOKEN`
-        tokens = self.tokens_trie.split(text)
-        # ["This is something", "<special_token_1>", "  else"]
-        for i, token in enumerate(tokens):
-            if token in no_split_token:
-                tok_extended = all_special_tokens_extended.get(token, None)
-                left = tokens[i - 1] if i > 0 else None
-                right = tokens[i + 1] if i < len(tokens) - 1 else None
-                if isinstance(tok_extended, AddedToken):
-                    if tok_extended.rstrip and right:
-                        # A bit counter-intuitive but we strip the left of the string
-                        # since tok_extended.rstrip means the special token is eating all white spaces on its right
-                        tokens[i + 1] = right.lstrip()
-                    # Strip white spaces on the left
-                    if tok_extended.lstrip and left:
-                        tokens[i - 1] = left.rstrip()  # Opposite here
-                else:
-                    # We strip left and right by default
-                    if right:
-                        tokens[i + 1] = right.lstrip()
-                    if left:
-                        tokens[i - 1] = left.rstrip()
-        # ["This is something", "<special_token_1>", "else"]
-        tokenized_text = []
-        for token in tokens:
-            # Need to skip eventual empty (fully stripped) tokens
-            if not token:
-                continue
-            if token in no_split_token:
-                tokenized_text.append(token)
-            else:
-                tokenized_text.extend(self._tokenize(token))
-        # ["This", " is", " something", "<special_token_1>", "else"]
-        return tokenized_text
-
-    def _tokenize(self, text, **kwargs):
-        split_tokens = []
-        if self.do_basic_tokenize:
-            for token in self.basic_tokenizer.tokenize(text, never_split=self.all_special_tokens):
-
-                # If the token is part of the never_split set
-                if token in self.basic_tokenizer.never_split:
-                    split_tokens.append(token)
-                else:
-                    split_tokens += self.wordpiece_tokenizer.tokenize(token)
-        else:
-            split_tokens = self.wordpiece_tokenizer.tokenize(text)
-        return split_tokens

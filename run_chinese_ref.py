@@ -5,8 +5,7 @@ from typing import List
 import jieba
 from tqdm import tqdm, trange
 from ltp import LTP
-from transformers.models.bert.tokenization_bert import BertTokenizer
-
+from tokenization_bert_zh import BertTokenizerZh
 
 def _is_chinese_char(cp):
     """Checks whether CP is the codepoint of a CJK character."""
@@ -77,20 +76,21 @@ def add_sub_symbol(bert_tokens: List[str], chinese_word_set: set()):
     return bert_word
 
 
-def prepare_ref(lines: List[str], ltp_tokenizer: LTP, bert_tokenizer: BertTokenizer):
-    ltp_res = []
-
+def prepare_ref(lines: List[str], ltp_tokenizer: LTP, bert_tokenizer: BertTokenizerZh):
+    seg_res = []
     for i in trange(0, len(lines), 100):
-        # ltp
-        # res = ltp_tokenizer.seg(lines[i : i + 100])[0]
-        # jieba
-        res = []
-        for line in lines[i : i + 100]:
-            seg = jieba.lcut(line)
-            res.append(seg)
+        if ltp_tokenizer is None:
+            # ltp
+            res = ltp_tokenizer.seg(lines[i : i + 100])[0]
+        else:
+            # jieba
+            res = []
+            for line in lines[i : i + 100]:
+                seg = jieba.lcut(line)
+                res.append(seg)
         res = [get_chinese_word(r) for r in res]
-        ltp_res.extend(res)
-    assert len(ltp_res) == len(lines)
+        seg_res.extend(res)
+    assert len(seg_res) == len(lines)
 
     bert_res = []
     for i in trange(0, len(lines), 100):
@@ -99,8 +99,7 @@ def prepare_ref(lines: List[str], ltp_tokenizer: LTP, bert_tokenizer: BertTokeni
     assert len(bert_res) == len(lines)
 
     ref_ids = []
-    for input_ids, chinese_word in tqdm(zip(bert_res, ltp_res), total=len(bert_res)):
-
+    for input_ids, chinese_word in tqdm(zip(bert_res, seg_res), total=len(bert_res)):
         input_tokens = []
         for id in input_ids:
             token = bert_tokenizer._convert_id_to_token(id)
@@ -118,7 +117,7 @@ def prepare_ref(lines: List[str], ltp_tokenizer: LTP, bert_tokenizer: BertTokeni
 
     assert len(ref_ids) == len(bert_res)
 
-    return ref_ids
+    return seg_res, ref_ids
 
 
 def main(args):
@@ -127,14 +126,16 @@ def main(args):
     with open(args.file_name, "r", encoding="utf-8") as f:
         data = f.readlines()
     data = [line.strip() for line in data if len(line) > 0 and not line.isspace()]  # avoid delimiter like '\u2029'
-    # ltp_tokenizer = LTP(args.ltp)  # faster in GPU device
-    ltp_tokenizer = None
-    bert_tokenizer = BertTokenizer.from_pretrained(args.bert)
-
-    ref_ids = prepare_ref(data, ltp_tokenizer, bert_tokenizer)
-
-    with open(args.save_path, "w", encoding="utf-8") as f:
-        data = [json.dumps(ref) + "\n" for ref in ref_ids]
+    
+    ltp_tokenizer = None if args.ltp is None else LTP(args.ltp)  # faster in GPU device
+    bert_tokenizer = BertTokenizerZh.from_pretrained(args.bert)
+    
+    seg_res, ref_ids = prepare_ref(data, ltp_tokenizer, bert_tokenizer)
+    with open(args.seg_save_path, "w", encoding="utf-8") as f:
+        data = [json.dumps(ref, ensure_ascii=False) + "\n" for ref in seg_res]
+        f.writelines(data)
+    with open(args.ref_save_path, "w", encoding="utf-8") as f:
+        data = [json.dumps(ref, ensure_ascii=False) + "\n" for ref in ref_ids]
         f.writelines(data)
 
 
@@ -147,10 +148,29 @@ if __name__ == "__main__":
         help="file need process, same as training data in lm",
     )
     parser.add_argument(
-        "--ltp", type=str, default=None, help="resources for LTP tokenizer, usually a path"
+        "--ltp", 
+        type=str, 
+        default="/home/louishsu/NewDisk/Garage/weights/ltp/base1.tgz", 
+        help="resources for LTP tokenizer, usually a path"
     )
-    parser.add_argument("--bert", type=str, default="/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/vocab.txt", help="resources for Bert tokenizer")
-    parser.add_argument("--save_path", type=str, default="data/processed/pretrain-v0/ref.train.txt", help="path to save res")
+    parser.add_argument(
+        "--bert", 
+        type=str, 
+        default="/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/vocab.txt", 
+        help="resources for Bert tokenizer"
+    )
+    parser.add_argument(
+        "--seg_save_path", 
+        type=str, 
+        default="data/processed/pretrain-v0/seg.train.txt", 
+        help="path to save seg res"
+    )
+    parser.add_argument(
+        "--ref_save_path", 
+        type=str, 
+        default="data/processed/pretrain-v0/ref.train.txt", 
+        help="path to save ref res"
+    )
 
     args = parser.parse_args()
     main(args)

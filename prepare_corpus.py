@@ -34,6 +34,7 @@ if __name__ == "__main__":
     corpus = []
     for example in chain(
         generate_examples("data/raw/train_data/train.txt"),
+        generate_examples("data/raw/preliminary_test_a/word_per_line_preliminary_A.txt"),
         generate_examples_from_lines("data/raw/train_data/unlabeled_train_data.txt"),
     ):
         text = "".join(example[1]["tokens"])

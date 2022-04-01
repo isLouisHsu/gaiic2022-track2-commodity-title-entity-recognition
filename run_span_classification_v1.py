@@ -57,7 +57,7 @@ from torchblocks.utils.device import prepare_device
 from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
 from torchblocks.utils.paths import find_all_checkpoints
 from torchblocks.utils.seed import seed_everything
-from tokenization_bert_zh import SPACE_TOKEN, BertTokenizerZh
+from tokenization_bert_zh import BertTokenizerZh
 from utils import get_spans_bio
 
 IGNORE_INDEX = -100
@@ -435,7 +435,7 @@ class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
     def process_example(self, example: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         for proc in self.process_piplines:
             if proc is None: continue
-            if isinstance(proc, ProcessBaseDual):
+            if isinstance(proc, AugmentBaseDual):
                 example_b = self.select_another_example_randomly(self.examples, example)
                 example = proc(example, example_b)
             else:
@@ -693,21 +693,42 @@ class ProcessMergeDiscontinuousSpans(ProcessBase):
         example["entities"] = entities
         return example
 
-class ProcessBaseDual(ProcessBase):
-    """ 用于处理两个example """
+class AugmentBase(ProcessBase):
+    
+    def __call__(self, example, inverse=False):
+        if not inverse:
+            example = self.process(example)
+        else:
+            example = self.process_inv(example)
+        return example
+    
+    def process(self, example):
+        raise NotImplementedError('Method [process] should be implemented.')
+    
+    def process_inv(self, example):
+        raise NotImplementedError('Method [process_inv] should be implemented.')
 
-    def __call__(self, example_a, example_b):
-        raise NotImplementedError('Method [__call__] should be implemented.')
+class AugmentBaseDual(AugmentBase):
+    
+    def __call__(self, example_a, example_b=None, inverse=False):
+        if not inverse:
+            example = self.process(example_a, example_b)
+        else:
+            example = self.process_inv(example_a, example_b)
+        return example
+    
+    def process(self, example_a, example_b=None):
+        raise NotImplementedError('Method [process] should be implemented.')
+    
+    def process_inv(self, example_a, example_b=None):
+        raise NotImplementedError('Method [process_inv] should be implemented.')
 
-class ProcessConcateExamplesRandomly(ProcessBaseDual):
+class ProcessConcateExamplesRandomly(AugmentBaseDual):
     """ 随机选择一个其他样本拼接，中间用[SEP]分隔 """
     
     def __init__(self, sep_token="[SEP]", p=0.5):
         self.sep_token = sep_token
         self.p = p
-    
-    def __call__(self, example_a, example_b):
-        return self.process(example_a, example_b)
     
     def process(self, example_a, example_b):
         example_a = deepcopy(example_a)
@@ -741,9 +762,9 @@ class ProcessConcateExamplesRandomly(ProcessBaseDual):
 
         return example
     
-    def process_inv(self, example):
+    def process_inv(self, example, dummpy=None):
         example = deepcopy(example)
-        status = example.pop(__class__)
+        status = example["status"].pop(__class__)
         is_replaced = status["is_replaced"]
         sep_id = status["sep_id"]
 
@@ -757,7 +778,7 @@ class ProcessConcateExamplesRandomly(ProcessBaseDual):
             else:
                 start -= (sep_id + 1)
                 end   -= (sep_id + 1)
-                entities_a.append([start, end, label, string])
+                entities_b.append([start, end, label, string])
         
         example_a = dict(guid=guid_a, text=text_a, entities=entities_a, sent_start=0, sent_end=len(text_a))
         example_b = dict(guid=guid_b, text=text_b, entities=entities_b, sent_start=0, sent_end=len(text_b))
@@ -767,14 +788,11 @@ class ProcessConcateExamplesRandomly(ProcessBaseDual):
         
         return example_a, example_b
 
-class ProcessDropRandomEntity(ProcessBase):
+class AugmentDropRandomEntity(AugmentBase):
     """ 随机选择实体丢弃 """
 
     def __init__(self, p=0.1):
         self.p = p
-    
-    def __call__(self, example):
-        return self.process(example)
 
     def process(self, example):
         example = deepcopy(example)
@@ -825,7 +843,7 @@ class ProcessDropRandomEntity(ProcessBase):
 
     def process_inv(self, example):
         example = deepcopy(example)
-        status = example.pop(__class__)
+        status = example["status"].pop(__class__)
         flag = status["flag"]
         offset = status["offset"]
         dropped = status["dropped"]
@@ -855,15 +873,12 @@ class ProcessDropRandomEntity(ProcessBase):
 
         return example
 
-class ProcessMaskRandomEntity(ProcessBase):
+class AugmentMaskRandomEntity(AugmentBase):
     """ 随机选择实体遮盖 """
 
     def __init__(self, mask_token="[MASK]", p=0.1):
         self.mask_token = mask_token
         self.p = p
-    
-    def __call__(self, example):
-        return self.process(example)
 
     def process(self, example):
         example = deepcopy(example)
@@ -901,7 +916,7 @@ class ProcessMaskRandomEntity(ProcessBase):
 
     def process_inv(self, example):
         example = deepcopy(example)
-        status = example.pop(__class__)
+        status = example["status"].pop(__class__)
         masked = status["masked"]
 
         for entity in masked:
@@ -914,14 +929,11 @@ class ProcessMaskRandomEntity(ProcessBase):
 
     pass    # TODO:
 
-class ProcessRandomMask(ProcessBase):
+class AugmentRandomMask(AugmentBase):
     """ 后处理 """
 
     def __init__(self, p=0.1):
         self.p = p
-    
-    def __call__(self, example):
-        return self.process(example)
 
     def process(self, example):
         example = deepcopy(example)
@@ -937,14 +949,13 @@ class ProcessRandomMask(ProcessBase):
         # TODO:
         return example
 
-class ProcessSynonymReplace(ProcessBase):
-    """ 后处理 """
-
-    def __init__(self, p=0.1):
-        self.p = p
+class AugmentSynonymReplace(AugmentBase):
+    """ 同义词替换 
     
-    def __call__(self, example):
-        return self.process(example)
+    TODO: 替换实体存在嵌套
+    """
+    def __init__(self, word_synonyms_map, p=0.1):
+        self.p = p
 
     def process(self, example):
         example = deepcopy(example)
@@ -1116,32 +1127,9 @@ class ProcessExample2FeatureZh(ProcessExample2Feature):
         if stanza_nlp is not None:
             self.stanza_upos_unit2id = self.stanza_nlp.processors['pos'].vocab._vocabs['upos']._unit2id
 
-    # def _encode_text(self, text: List[str]):
-    #     # XXX: 中文预训练模型分词器基于BERT，会将句子中出现的空白符删除
-    #     tokens = [ch if ch in self.tokenizer.vocab else 
-    #         self.tokenizer.unk_token for ch in text]
-    #     inputs = self.tokenizer(
-    #         tokens,
-    #         padding="max_length",
-    #         truncation="longest_first",
-    #         max_length=self.max_sequence_length,
-    #         is_split_into_words=True,
-    #         return_tensors="pt",
-    #     )
-    #     input_length = inputs["attention_mask"].sum().item() - 2
-    #     pad_length = self.max_sequence_length - input_length - 2 - 1
-    #     inputs["offset_mapping"] = torch.tensor([
-    #         [(0, 0), ] + \
-    #         [(i, i + 1) for i in range(input_length)] + \
-    #         [(0, 0) for i in range(pad_length)]
-    #     ])
-    #     return inputs
-
     def _encode_text(self, text: List[str]):
-        # XXX: 中文预训练模型分词器基于BERT，会将句子中出现的空白符删除
-        tokens = [SPACE_TOKEN if ch == " " else ch for ch in text]
         inputs = self.tokenizer(
-            tokens,
+            text,
             padding="max_length",
             truncation="longest_first",
             max_length=self.max_sequence_length,

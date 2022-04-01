@@ -1,3 +1,5 @@
+import json
+
 LABEL2MEANING_MAP = {
     # 主体商品，即上架的商品
     "1": "主体商品-品牌",
@@ -96,3 +98,19 @@ def get_spans_bio(tags, id2label=None):
                 chunks.append(chunk)
             chunk = [-1, -1, -1]
     return chunks
+
+def check_example(example):
+    text = example["text"]
+    entities = example["entities"]
+    if entities is None:
+        return
+    for start, end, label, string in entities:
+        assert tuple(text[start: end]) == tuple(string)
+
+word_synonyms_map = None    # 单例
+def get_synonym(word, default=None):
+    global word_synonyms_map
+    if word_synonyms_map is None:
+        with open("data/word_synonyms_map.json", "r") as f:
+            word_synonyms_map = json.load(f)
+    return word_synonyms_map.get(word, default)
