@@ -58,7 +58,7 @@ from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
 from torchblocks.utils.paths import find_all_checkpoints
 from torchblocks.utils.seed import seed_everything
 from tokenization_bert_zh import BertTokenizerZh
-from utils import get_spans_bio
+from utils import get_spans_bio, check_example, get_synonym
 
 IGNORE_INDEX = -100
 Span = NewType("Span", Tuple[int, int, str])
@@ -757,12 +757,13 @@ class ProcessConcateExamplesRandomly(AugmentBaseDual):
             sep_id=sep_id
         )
 
-        import pdb; pdb.set_trace()
         self.process_inv(example)
 
         return example
     
     def process_inv(self, example, dummpy=None):
+        if __class__ not in example["status"]:
+            return example
         example = deepcopy(example)
         status = example["status"].pop(__class__)
         is_replaced = status["is_replaced"]
@@ -812,7 +813,7 @@ class AugmentDropRandomEntity(AugmentBase):
             entity = entities[index]
             if index in dropped_indices:
                 start, end, label, string = entity
-                offset[start: ] -= end - start
+                offset[start: ] -= (end - start)
                 flag[start: end] = 1
                 dropped.append(entity)
             else:
@@ -828,6 +829,8 @@ class AugmentDropRandomEntity(AugmentBase):
         example["sent_start"] = 0
         example["sent_end"] = len(text)
         example["entities"] = kept
+        check_example(example)
+
         if "status" not in example:
             example["status"] = dict()
         example["status"][__class__] = dict(
@@ -836,12 +839,11 @@ class AugmentDropRandomEntity(AugmentBase):
             dropped=dropped,
         )
 
-        import pdb; pdb.set_trace()
-        self.process_inv(example)
-
         return example
 
     def process_inv(self, example):
+        if __class__ not in example["status"]:
+            return example
         example = deepcopy(example)
         status = example["status"].pop(__class__)
         flag = status["flag"]
@@ -870,6 +872,7 @@ class AugmentDropRandomEntity(AugmentBase):
         example["sent_start"] = 0
         example["sent_end"] = len(text)
         example["entities"] = entities
+        check_example(example)
 
         return example
 
@@ -903,18 +906,19 @@ class AugmentMaskRandomEntity(AugmentBase):
 
         example["text"] = text
         example["entities"] = kept
+        check_example(example)
+
         if "status" not in example:
             example["status"] = dict()
         example["status"][__class__] = dict(
             masked=masked, 
         )
 
-        import pdb; pdb.set_trace()
-        self.process_inv(example)
-
         return example
 
     def process_inv(self, example):
+        if __class__ not in example["status"]:
+            return example
         example = deepcopy(example)
         status = example["status"].pop(__class__)
         masked = status["masked"]
@@ -924,10 +928,9 @@ class AugmentMaskRandomEntity(AugmentBase):
             example["text"][start: end] = string
             example["entities"].append(entity)
         assert all([ch != self.mask_token for ch in example["text"]])
+        check_example(example)
 
         return example
-
-    pass    # TODO:
 
 class AugmentRandomMask(AugmentBase):
     """ 后处理 """
@@ -939,13 +942,16 @@ class AugmentRandomMask(AugmentBase):
         example = deepcopy(example)
 
         # TODO:
-        import pdb; pdb.set_trace()
+        check_example(example)
         self.process_inv(example)
 
         return example
 
     def process_inv(self, example):
+        if __class__ not in example["status"]:
+            return example
         example = deepcopy(example)
+        check_example(example)
         # TODO:
         return example
 
@@ -954,23 +960,88 @@ class AugmentSynonymReplace(AugmentBase):
     
     TODO: 替换实体存在嵌套
     """
-    def __init__(self, word_synonyms_map, p=0.1):
+    def __init__(self, p=0.1, augment_labels=None):
         self.p = p
+        self.augment_labels = augment_labels
 
     def process(self, example):
         example = deepcopy(example)
+        text = example["text"]
+        entities = example["entities"]
 
-        # TODO:
-        import pdb; pdb.set_trace()
-        self.process_inv(example)
+        idx2entity_map = self._find_synonym(entities)
+        num_entities = len(idx2entity_map)
+        num_replace = int(np.round(num_entities * self.p))
+        if num_replace == 0: return example
+        replaced_indices = np.random.choice(
+            list(idx2entity_map.keys()), size=num_replace, replace=False)
+
+        idx2entity_map = {k: v for k, v in idx2entity_map.items() if k in replaced_indices}
+        text, entities, idx2entity_map = self._replace_entities(
+            text, entities, idx2entity_map)
+
+        example["text"] = text
+        example["entities"] = entities
+        example["sent_start"] = 0
+        example["sent_end"] = len(text)
+        check_example(example)
+
+        if "status" not in example:
+            example["status"] = dict()
+        example["status"][__class__] = dict(
+            idx2entity_map=idx2entity_map,
+        )
 
         return example
 
     def process_inv(self, example):
+        if __class__ not in example["status"]:
+            return example
         example = deepcopy(example)
-        # TODO:
+        status = example["status"].pop(__class__)
+
+        text, entities = example["text"], example["entities"]
+        idx2entity_map = status["idx2entity_map"]
+        text, entities, idx2entity_map = self._replace_entities(
+            text, entities, idx2entity_map)
+
+        example["text"] = text
+        example["entities"] = entities
+        example["sent_start"] = 0
+        example["sent_end"] = len(text)
+
+        check_example(example)
         return example
 
+    def _find_synonym(self, entities):
+        idx2entity_map = dict()
+        for idx, (start, end, label, string) in enumerate(entities):
+            if label not in self.augment_labels:
+                continue
+            word = "".join(string)
+            synonyms = get_synonym(word, None)
+            if synonyms is None:
+                continue
+            synonym = synonyms[np.random.choice(len(synonyms))][0]
+            entity_new = [start, start + len(synonym), label, list(synonym)]
+            idx2entity_map[idx] = entity_new
+        return idx2entity_map
+
+    def _replace_entities(self, text, entities, idx2entity_map):
+        for idx, entity_new in sorted(idx2entity_map.items(), key=lambda x: x[0], reverse=True):
+            start, end, label, string = entities[idx]
+            start_new, end_new, label_new, string_new = entity_new
+            text = text[: start] + string_new + text[end: ]
+            entities[idx] = entity_new
+
+            offset = len(string_new) - len(string)
+            for entity in entities[idx + 1: ]:
+                entity[0] += offset
+                entity[1] += offset
+
+            idx2entity_map[idx] = (start, end, label, string)
+
+        return text, entities, idx2entity_map
 class ProcessExample2Feature(ProcessBase):
 
     def __init__(self, label2id, tokenizer, max_sequence_length, 
@@ -1173,6 +1244,16 @@ class ConditionalProcessExample2Feature(ProcessExample2Feature):
 def load_dataset(data_class, process_class, data_name, data_dir, data_type, tokenizer, max_sequence_length, 
                  context_size, max_span_length, negative_sampling, stanza_nlp=None, **kwargs):
     process_piplines = [
+        # AugmentRandomMask(p=0.1) if data_type == "train" else None,
+        # AugmentDropRandomEntity(p=0.1) if data_type == "train" else None,
+        # AugmentMaskRandomEntity(mask_token="[MASK]", p=0.1) if data_type == "train" else None,
+        # AugmentSynonymReplace(p=0.1, augment_labels=[
+        #     label for label in data_class.get_labels() if label not in {
+        #         "1", "2", "3", "4",
+        #         "19", "20", "21", "23",
+        #         "37", "38", "39", "40",
+        #     }
+        # ]) if data_type == "train" else None,
         ProcessConvertLevel(tokenizer, "word2char") if data_class in [  # english
 
         ] else None,
@@ -1715,7 +1796,7 @@ class ModelForSpanClassification(PreTrainedModel):
         rdrop_forward=False,
         return_dict=None,
     ):
-        if rdrop_forward and self.training:
+        if self.config.do_rdrop and (not rdrop_forward) and self.training:
             outputs1 = self(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -1725,7 +1806,7 @@ class ModelForSpanClassification(PreTrainedModel):
                 spans=spans,
                 spans_mask=spans_mask,
                 labels=labels,
-                rdrop_forward=False,
+                rdrop_forward=True,
                 return_dict=return_dict,
             )
             outputs2 = self(
@@ -1737,7 +1818,7 @@ class ModelForSpanClassification(PreTrainedModel):
                 spans=spans,
                 spans_mask=spans_mask,
                 labels=labels,
-                rdrop_forward=False,
+                rdrop_forward=True,
                 return_dict=return_dict,
             )
             rdrop_loss_func = SpanClassificationRDropLoss()
@@ -2232,7 +2313,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_nezha_nezha-cn-base-span-v1-lr3e-5-wd0.01-dropout0.5-span15-e5-bs16x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-cn-base-span-v1-lr3e-5-wd0.01-dropout0.5-span15-e5-bs16x1-sinusoidal-biaffine-fgm1.0_opts.json")
+    # sys.argv.append("outputs/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -2257,6 +2338,8 @@ def build_opts():
         group.add_argument("--label_smoothing", type=float, default=0.0)
         group.add_argument("--focal_gamma", type=float, default=2.0)
         group.add_argument("--focal_alpha", type=float, default=0.25)
+        group.add_argument("--do_rdrop", action="store_true")
+        group.add_argument("--rdrop_weight", type=float, default=0.3)
         group.add_argument("--decode_thresh", type=float, default=0.0)
         group.add_argument("--extract_method", type=str, default="endpoint")
         group.add_argument("--find_best_decode_thresh", action="store_true")
@@ -2391,6 +2474,8 @@ def main(opts):
         negative_sampling=opts.negative_sampling,
         max_span_length=opts.max_span_length, 
         width_embedding_size=opts.width_embedding_size,
+        do_rdrop=opts.do_rdrop,
+        rdrop_weight=opts.rdrop_weight,
         loss_type=opts.loss_type,
         label_smoothing=opts.label_smoothing, 
         focal_gamma=opts.focal_gamma,

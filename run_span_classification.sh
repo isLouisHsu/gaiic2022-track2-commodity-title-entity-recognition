@@ -932,3 +932,48 @@ python run_span_classification_v1.py \
 2022-03-30 23:47:56 - INFO - root -   eval_f1_micro_all_entity = 0.8079
 2022-03-30 23:47:56 - INFO - root -   eval_f1_micro_without_label_entity = 0.9014
 2022-03-30 23:47:56 - INFO - root -   eval_loss = 0.011
+
+# 线上 0.8041638451190515
+python run_span_classification_v1.py \
+    --experiment_code=nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e15-bs32x1-sinusoidal-biaffine-fgm1.0 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
+    --data_dir=data/processed/v2/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_train --do_eval --do_predict \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=32 \
+    --per_gpu_eval_batch_size=32 \
+    --per_gpu_test_batch_size=32 \
+    --gradient_accumulation_steps=1 \
+    --learning_rate=5e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=15 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.1 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable \
+    --adv_epsilon=1.0 \
+    --seed=42
+2022-04-02 23:50:55 - INFO - root -   eval_f1_micro_all_entity = 0.8045
+2022-04-02 23:50:55 - INFO - root -   eval_f1_micro_without_label_entity = 0.8976
+2022-04-02 23:50:55 - INFO - root -   eval_loss = 0.0112
+

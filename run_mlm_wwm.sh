@@ -89,7 +89,7 @@ done
 
 export WANDB_DISABLED=true
 data_dir=data/processed/pretrain-v1
-version=nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-30k-warmup1k-bs32x2
+version=nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-50k-warmup30k-bs64x2
 python run_mlm_wwm.py \
     --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
     --model_type=nezha \
@@ -103,23 +103,25 @@ python run_mlm_wwm.py \
     --preprocessing_num_workers=8 \
     --mlm_probability=0.15 \
     --output_dir=outputs/${version}/ \
-    --overwrite_output_dir \
     --do_train --do_eval \
     --warmup_steps=3000 \
-    --max_steps=30000 \
+    --max_steps=50000 \
     --evaluation_strategy=steps \
-    --eval_steps=1000 \
-    --per_device_train_batch_size=32 \
-    --per_device_eval_batch_size=32 \
+    --eval_steps=2000 \
+    --per_device_train_batch_size=64 \
+    --per_device_eval_batch_size=64 \
     --gradient_accumulation_steps=2 \
     --label_smoothing_factor=0.0 \
     --learning_rate=2e-5 \
     --weight_decay=0.01 \
     --logging_dir=outputs/${version}/log/ \
     --logging_strategy=steps \
-    --logging_steps=1000 \
+    --logging_steps=2000 \
     --save_strategy=steps \
-    --save_steps=1000 \
-    --save_total_limit=10 \
+    --save_steps=2000 \
+    --save_total_limit=20 \
     --dataloader_num_workers=4 \
     --seed=42
+2022-04-02 19:46:08 - INFO - root -   eval_f1_micro_all_entity = 0.7863
+2022-04-02 19:46:08 - INFO - root -   eval_f1_micro_without_label_entity = 0.8879
+2022-04-02 19:46:08 - INFO - root -   eval_loss = 0.013

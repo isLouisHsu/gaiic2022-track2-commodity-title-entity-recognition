@@ -1,4 +1,8 @@
 import json
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 LABEL2MEANING_MAP = {
     # 主体商品，即上架的商品
@@ -105,12 +109,16 @@ def check_example(example):
     if entities is None:
         return
     for start, end, label, string in entities:
-        assert tuple(text[start: end]) == tuple(string)
+        try:
+            assert tuple(text[start: end]) == tuple(string)
+        except:
+            import pdb; pdb.set_trace()
 
 word_synonyms_map = None    # 单例
 def get_synonym(word, default=None):
     global word_synonyms_map
     if word_synonyms_map is None:
-        with open("data/word_synonyms_map.json", "r") as f:
+        logging.info(f"Initializing word_synonyms_map...")
+        with open("data/word_synonyms_map.wv.json", "r") as f:
             word_synonyms_map = json.load(f)
     return word_synonyms_map.get(word, default)
