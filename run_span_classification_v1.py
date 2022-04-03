@@ -1714,10 +1714,8 @@ class SpanClassificationRDropLoss(nn.Module):
     def __init__(self):
         super().__init__()
     
-    def forward(p, q, mask=None):
+    def forward(self, p, q, mask=None):
         
-        import pdb; pdb.set_trace()
-
         batch_size, num_spans, num_labels = p.size()
         if mask is None:
             mask = torch.ones(batch_size, num_spans, dtype=torch.bool, device=p.device)
@@ -1783,6 +1781,9 @@ class ModelForSpanClassification(PreTrainedModel):
             ignore_index=IGNORE_INDEX,
         )
 
+        if config.do_rdrop:
+            self.rdrop_loss_func = SpanClassificationRDropLoss()
+
     def forward(
         self,
         input_ids=None,
@@ -1821,9 +1822,8 @@ class ModelForSpanClassification(PreTrainedModel):
                 rdrop_forward=True,
                 return_dict=return_dict,
             )
-            rdrop_loss_func = SpanClassificationRDropLoss()
             loss = (outputs1["loss"] + outputs2["loss"]) / 2. + \
-                self.config.rdrop_weight * rdrop_loss_func(
+                self.config.rdrop_weight * self.rdrop_loss_func(
                     outputs1["logits"], outputs2["logits"], spans_mask)
             return SpanClassificationOutput(
                 loss=loss,

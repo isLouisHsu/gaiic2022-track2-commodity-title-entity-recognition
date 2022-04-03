@@ -76,6 +76,11 @@ class BertTokenizerZh(BertTokenizer):
             never_split = [space_token,]
         else:
             never_split.append(space_token)
+        
+        if "do_basic_tokenize" in kwargs:
+            kwargs.pop("do_basic_tokenize")
+        if "additional_special_tokens" in kwargs:
+            kwargs.pop("additional_special_tokens")
 
         super().__init__(
             vocab_file=vocab_file,
