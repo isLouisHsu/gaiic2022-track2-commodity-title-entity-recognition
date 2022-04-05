@@ -2444,11 +2444,12 @@ def main(opts):
     except AssertionError:
         # XXX: AssertionError: Config has to be initialized with question_encoder and generator config
         tokenizer = tokenizer_class.from_pretrained(os.path.join(opts.pretrained_model_path, "vocab.txt"), do_lower_case=opts.do_lower_case)
+    train_dataset = dev_dataset = test_dataset = None
     if opts.do_train or opts.do_check:
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_train_examples)
-    if opts.do_train or opts.do_eval:
+    if (opts.do_train or opts.do_eval) and opts.evaluate_during_training:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
                                     tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_eval_examples)

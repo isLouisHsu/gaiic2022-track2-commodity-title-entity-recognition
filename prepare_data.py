@@ -91,16 +91,22 @@ if __name__ == "__main__":
     labeled_examples = []
     for labeled_file in args.labeled_files:
         labeled_examples.extend(create_examples(generate_examples(labeled_file), "train"))
-    kf = KFold(n_splits=args.n_splits, shuffle=args.shuffle)
-    for fold_no, (train_index, dev_index) in enumerate(kf.split(labeled_examples)):
-        print(f"split={fold_no}, #train={len(train_index)}, #dev={len(dev_index)}")
-        with open(os.path.join(args.output_dir, f"train.{fold_no}.jsonl"), "w") as f:
-            for index in train_index:
-                example = labeled_examples[index]
-                f.write(json.dumps(example, ensure_ascii=False) + "\n")
-        with open(os.path.join(args.output_dir, f"dev.{fold_no}.jsonl"), "w") as f:
-            for index in dev_index:
-                example = labeled_examples[index]
+    if args.n_splits > 1:
+        kf = KFold(n_splits=args.n_splits, shuffle=args.shuffle)
+        for fold_no, (train_index, dev_index) in enumerate(kf.split(labeled_examples)):
+            print(f"split={fold_no}, #train={len(train_index)}, #dev={len(dev_index)}")
+            with open(os.path.join(args.output_dir, f"train.{fold_no}.jsonl"), "w") as f:
+                for index in train_index:
+                    example = labeled_examples[index]
+                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
+            with open(os.path.join(args.output_dir, f"dev.{fold_no}.jsonl"), "w") as f:
+                for index in dev_index:
+                    example = labeled_examples[index]
+                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
+    else:
+        print(f"split=all, #train={len(labeled_examples)}, #dev=0")
+        with open(os.path.join(args.output_dir, f"train.all.jsonl"), "w") as f:
+            for example in labeled_examples:
                 f.write(json.dumps(example, ensure_ascii=False) + "\n")
     
     for test_file in args.test_files:
