@@ -4,6 +4,11 @@
 
 ## 更新
 
+### 2022/4/5
+
+1. `large`微调，全量数据，FGM0.5，`nezha-large-100k-spanv1-datav3-lr2e-5-wd0.01-dropout0.1-span35-e6-bs16x2-sinusoidal-biaffine-fgm0.5`；
+2. 新增半监督训练`run_span_classification_ssl`。
+
 ### 2022/4/4
 1. `large`微调，全量数据，FGM0.5，`nezha-large-100k-spanv1-datav3-lr2e-5-wd0.01-dropout0.1-span35-e6-bs16x2-sinusoidal-biaffine-fgm0.5`，待训练。
 

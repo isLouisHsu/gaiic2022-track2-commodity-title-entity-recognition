@@ -73,6 +73,7 @@ if __name__ == "__main__":
     parser.add_argument("--labeled_files", type=str, nargs="+", default=[
         "data/raw/train_data/train.txt",
     ])
+    parser.add_argument("--unlabeled_files", type=str, nargs="+", default=None)
     parser.add_argument("--test_files", type=str, nargs="+", default=[
         "data/raw/preliminary_test_a/word_per_line_preliminary_A.txt",
     ])
@@ -107,6 +108,15 @@ if __name__ == "__main__":
         print(f"split=all, #train={len(labeled_examples)}, #dev=0")
         with open(os.path.join(args.output_dir, f"train.all.jsonl"), "w") as f:
             for example in labeled_examples:
+                f.write(json.dumps(example, ensure_ascii=False) + "\n")
+    
+    if args.unlabeled_files is not None:
+        unlabeled_examples = []
+        for unlabeled_file in args.unlabeled_files:
+            unlabeled_examples.extend(create_examples(generate_examples(unlabeled_file), "train"))
+        print(f"#semi={len(unlabeled_examples)}")
+        with open(os.path.join(args.output_dir, f"semi.all.jsonl"), "w") as f:
+            for example in unlabeled_examples:
                 f.write(json.dumps(example, ensure_ascii=False) + "\n")
     
     for test_file in args.test_files:

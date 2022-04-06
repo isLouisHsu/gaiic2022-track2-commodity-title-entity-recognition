@@ -30,6 +30,8 @@ import torch
 from torch import nn
 from torch.nn import init
 from torch.nn import functional as F
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.sampler import RandomSampler
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 
 from transformers import (
@@ -427,7 +429,7 @@ class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
             guid = f"{data_type}-{i}"
             tokens = line["text"]
             entities = None
-            if data_type != "test":
+            if data_type not in ["test", "semi"]:
                 entities = line["entities"]
             examples.append(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens)))
         return examples
@@ -1152,6 +1154,7 @@ class ProcessExample2Feature(ProcessBase):
 
     def __call__(self, example):
         text: str = example["text"]
+        data_type = example["guid"].split("-")[0]
 
         inputs = self._encode_text(text)
         inputs = {k: v.squeeze(0) for k, v in inputs.items()}
@@ -1264,7 +1267,7 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         ),
     ]
     return data_class(data_name, data_dir, data_type, process_piplines, 
-        context_size=context_size, use_cache=True, **kwargs)
+        context_size=context_size, use_cache=False, **kwargs)
 
 
 class CoAttention(nn.Module):
@@ -2303,6 +2306,199 @@ class Trainer(TrainerBase):
         if use_wandb:
             wandb.log(metric_key_value_map)
 
+class SemiTrainer(Trainer):
+
+    def __init__(self,
+                 opts,
+                 model,
+                 metrics,
+                 logger,
+                 optimizer=None,
+                 scheduler=None,
+                 adv_model=None,
+                 model_checkpoint=None,
+                 early_stopping=None,
+                 **kwargs):
+        super().__init__(
+            opts=opts, 
+            model=model, 
+            metrics=metrics,
+            logger=logger,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            adv_model=adv_model,
+            model_checkpoint=model_checkpoint,
+            early_stopping=early_stopping,
+            **kwargs,
+        )
+        self.student = self.model
+        self.teacher = deepcopy(model)
+
+    def build_semi_dataloader(self, semi_data):
+        '''
+        Load train datasets
+        '''
+        if isinstance(semi_data, DataLoader):
+            return semi_data
+        elif isinstance(semi_data, Dataset):
+            batch_size = self.opts.per_gpu_train_batch_size * max(1, self.device_num)
+            sampler = RandomSampler(semi_data) if not hasattr(semi_data, 'sampler') else semi_data.sampler
+            collate_fn = semi_data.collate_fn if hasattr(semi_data, 'collate_fn') else None
+            data_loader = DataLoader(semi_data,
+                                     sampler=sampler,
+                                     batch_size=batch_size,
+                                     collate_fn=collate_fn,
+                                     drop_last=self.opts.drop_last,
+                                     num_workers=self.opts.num_workers)
+            return data_loader
+        else:
+            raise TypeError("train_data type{} not support".format(type(semi_data)))
+
+    def predict_semi_forward(self, batch):
+        self.teacher.eval()
+        inputs = self.build_batch_inputs(batch)
+        with torch.no_grad():
+            outputs = self.teacher(**inputs)
+        if 'loss' in outputs and outputs['loss'] is not None:
+            outputs['loss'] = outputs['loss'].mean().detach().item()
+        outputs = {key: value.detach().cpu() if isinstance(value, torch.Tensor) else value for key, value in
+                   outputs.items()}
+        batch = {key: value for key, value in dict(batch, **outputs).items() if
+                 key not in self.keys_to_ignore_on_result_save}
+        return batch
+    
+    def train_teacher_update(self):
+        momentum = self.opts.semi_teacher_momentum
+        for (src_name, src_parm), (tgt_name, tgt_parm) in zip(
+            self.student.named_parameters(), self.teacher.named_parameters()
+        ):
+            tgt_parm.data.mul_(momentum).add_(src_parm.data, alpha=1 - momentum)
+
+    def train_step(self, step, batch, semi_batch):
+        # supervised
+        outputs = self.train_forward(batch)
+        loss_sup = outputs['loss']
+        
+        # semi
+        ## teacher forward
+        outputs_semi = self.predict_semi_forward(semi_batch)
+        semi_probas = outputs_semi["logits"].softmax(dim=-1)
+        semi_probas, semi_labels = semi_probas.max(dim=-1)
+        ## valid foreground & background mask
+        semi_valid_mask = (semi_probas > self.opts.semi_confident_thresh) & (semi_batch["spans_mask"] > 0)
+        semi_non_entity_mask = semi_labels == 0 # XXX: other id
+        semi_valid_entity_mask = semi_valid_mask & ~semi_non_entity_mask
+        semi_valid_non_entity_mask = semi_valid_mask & semi_non_entity_mask
+        ## negative sampling
+        num_semi_entity, num_semi_non_entity = semi_valid_entity_mask.sum(), semi_valid_non_entity_mask.sum()
+        semi_negative_sample_rate = num_semi_entity * self.opts.semi_negative_rate / num_semi_non_entity
+        semi_negative_sample_mask = torch.bernoulli(torch.full_like(
+            semi_valid_non_entity_mask, semi_negative_sample_rate, dtype=torch.float)) > 0
+        semi_valid_non_entity_mask = semi_valid_non_entity_mask & semi_negative_sample_mask
+        ## student forward
+        semi_batch["labels"] = torch.full_like(semi_batch["spans_mask"], IGNORE_INDEX)
+        semi_batch["labels"] = torch.where(semi_valid_entity_mask|semi_valid_non_entity_mask, semi_labels, IGNORE_INDEX)
+        outputs_semi = self.train_forward(semi_batch)
+        loss_semi = outputs_semi['loss']
+
+        loss = loss_sup + self.opts.semi_loss_weight * loss_semi
+        self.train_backward(loss)
+        should_save = False
+        should_logging = False
+        if self.opts.adv_enable:
+            self.train_adv(batch)
+        if (step + 1) % self.gradient_accumulation_steps == 0 or (
+                self.steps_in_epoch <= self.gradient_accumulation_steps
+                and (step + 1) == self.steps_in_epoch
+        ):
+            self.train_update()
+            self.train_teacher_update()
+            should_logging = self.global_step % self.opts.logging_steps == 0
+            should_save = self.global_step % self.opts.save_steps == 0
+            self.records['loss_meter'].update(loss.item(), n=1)
+            self.writer.add_scalar('loss/train_loss', loss.item(), self.global_step)
+            if hasattr(self.scheduler, 'get_lr'):
+                self.writer.add_scalar('learningRate/train_lr', self.scheduler.get_lr()[0], self.global_step)
+            return outputs, should_logging, should_save
+        else:
+            return None, should_logging, should_save
+
+    # TODO 多机分布式训练
+    def train(self, train_data, semi_data, dev_data=None, resume_path=None, start_epoch=1, state_to_save=dict()):
+        train_dataloader = self.build_train_dataloader(train_data)
+        semi_dataloader = self.build_semi_dataloader(semi_data)
+        num_training_steps = len(train_dataloader) // self.gradient_accumulation_steps * self.num_train_epochs
+        self.steps_in_epoch = len(train_dataloader)
+        if self.scheduler is None:
+            self.scheduler = self.build_lr_scheduler(num_training_steps)
+        self.resume_from_checkpoint(resume_path=resume_path)
+        self.build_model_warp()
+        self.print_summary(len(train_data), num_training_steps)
+        self.optimizer.zero_grad()
+        seed_everything(self.opts.seed, verbose=False)  # Added here for reproductibility (even between python 2 and 3)
+        if self.opts.logging_steps < 0:
+            self.opts.logging_steps = len(train_dataloader) // self.gradient_accumulation_steps
+            self.opts.logging_steps = max(1, self.opts.logging_steps)
+        if self.opts.save_steps < 0:
+            self.opts.save_steps = len(train_dataloader) // self.gradient_accumulation_steps
+            self.opts.save_steps = max(1, self.opts.save_steps)
+        self.build_record_tracker()
+        self.reset_metrics()
+        pbar = ProgressBar(n_total=len(train_dataloader), desc='Training', num_epochs=self.num_train_epochs)
+        for epoch in range(start_epoch, int(self.num_train_epochs) + 1):
+            pbar.epoch(current_epoch=epoch)
+            for step, (batch, semi_batch) in enumerate(zip(train_dataloader, semi_dataloader)):
+                outputs, should_logging, should_save = self.train_step(step, batch, semi_batch)
+                if outputs is not None:
+                    if self.opts.ema_enable:
+                        self.model_ema.update(self.model)
+                    pbar.step(step, {'loss': outputs['loss'].item()})
+                if (self.opts.logging_steps > 0 and self.global_step > 0) and \
+                        should_logging and self.opts.evaluate_during_training:
+                    self.evaluate(dev_data)
+                    if self.opts.ema_enable and self.model_ema is not None:
+                        self.evaluate(dev_data, prefix_metric='ema')
+                    if hasattr(self.writer, 'save'):
+                        self.writer.save()
+                if (self.opts.save_steps > 0 and self.global_step > 0) and should_save:
+                    # model checkpoint
+                    if self.model_checkpoint:
+                        state = self.build_state_object(**state_to_save)
+                        if self.opts.evaluate_during_training:
+                            if self.model_checkpoint.monitor not in self.records['result']:
+                                msg = ("There were expected keys in the eval result: "
+                                    f"{', '.join(list(self.records['result'].keys()))}, "
+                                    f"but get {self.model_checkpoint.monitor}."
+                                    )
+                                raise TypeError(msg)
+                            self.model_checkpoint.step(
+                                state=state,
+                                current=self.records['result'][self.model_checkpoint.monitor]
+                            )
+                        else:
+                            self.model_checkpoint.step(
+                                state=state,
+                                current=None
+                            )
+
+            # early_stopping
+            if self.early_stopping:
+                if self.early_stopping.monitor not in self.records['result']:
+                    msg = ("There were expected keys in the eval result: "
+                           f"{', '.join(list(self.records['result'].keys()))}, "
+                           f"but get {self.early_stopping.monitor}."
+                           )
+                    raise TypeError(msg)
+                self.early_stopping.step(
+                    current=self.records['result'][self.early_stopping.monitor])
+                if self.early_stopping.stop_training:
+                    break
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        if self.writer:
+            self.writer.close()
+
+
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForSpanClassification, BertTokenizerZh),
     "nezha": (BertConfig, NeZhaForSpanClassification, BertTokenizerZh),
@@ -2314,7 +2510,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0_opts.json")
+    sys.argv.append("outputs/gaiic_nezha_nezha-50k-ssl-spanv1-datav2-lr3e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-50k-ssl-spanv1-datav2-lr3e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -2325,9 +2521,15 @@ def build_opts():
         group = parser.add_argument_group(title="user-defined", description="user-defined")
         group.add_argument("--do_check", action="store_true")
         group.add_argument("--labels", nargs="+", type=str, default=None)
+        group.add_argument("--semi_input_file", type=str, default=None)
         group.add_argument("--max_train_examples", type=int, default=None)
         group.add_argument("--max_eval_examples", type=int, default=None)
         group.add_argument("--max_test_examples", type=int, default=None)
+        group.add_argument("--max_semi_examples", type=int, default=None)
+        group.add_argument("--semi_confident_thresh", type=float, default=0.9)
+        group.add_argument("--semi_negative_rate", type=float, default=5.0)
+        group.add_argument("--semi_loss_weight", type=float, default=1.0)
+        group.add_argument("--semi_teacher_momentum", type=float, default=0.999)
         group.add_argument("--context_size", type=int, default=0)
         group.add_argument("--classifier_dropout", type=float, default=0.1)
         group.add_argument("--use_last_n_layers", type=int, default=None)
@@ -2450,6 +2652,9 @@ def main(opts):
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_train_examples)
+        semi_dataset = load_dataset(data_class, process_class, opts.semi_input_file, opts.data_dir, "semi",
+                                    tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_semi_examples)
     if (opts.do_train or opts.do_eval) and opts.evaluate_during_training:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
                                     tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
@@ -2458,7 +2663,7 @@ def main(opts):
         test_dataset  = load_dataset(data_class, process_class, opts.test_input_file, opts.data_dir, "test",
                                     tokenizer, opts.test_max_seq_length, opts.context_size, opts.max_span_length,
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_test_examples)
-    if stanza_nlp is not None and train_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
+    if stanza_nlp is not None and train_dataset.use_cache and semi_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
         del stanza_nlp
     opts.label2id = data_class.label2id()
     opts.id2label = data_class.id2label()
@@ -2532,11 +2737,11 @@ def main(opts):
             if label not in ["O",]}, "micro", entity_type="all"),
         SequenceLabelingScoreEntity({"_"}, "micro", entity_type="without_label"),
     ]
-    trainer = Trainer(opts=opts, model=model, metrics=metrics, logger=logger)
+    trainer = SemiTrainer(opts=opts, model=model, metrics=metrics, logger=logger)
 
     # do train
     if opts.do_train:
-        trainer.train(train_data=train_dataset, dev_data=dev_dataset, state_to_save={"vocab": tokenizer})
+        trainer.train(train_data=train_dataset, semi_data=semi_dataset, dev_data=dev_dataset, state_to_save={"vocab": tokenizer})
 
     if opts.do_eval:
         checkpoints = []
