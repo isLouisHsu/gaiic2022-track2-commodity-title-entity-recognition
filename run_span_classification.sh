@@ -1163,6 +1163,7 @@ python prepare_data.py \
     --n_splits=1 \
     --seed=42
 
+# 线上0.8084194384827382
 python run_span_classification_v1.py \
     --experiment_code=nezha-large-100k-spanv1-datav3-lr2e-5-wd0.01-dropout0.1-span35-e6-bs16x2-sinusoidal-biaffine-fgm0.5 \
     --task_name=gaiic \
