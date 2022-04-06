@@ -2378,7 +2378,7 @@ class SemiTrainer(Trainer):
         # supervised
         outputs = self.train_forward(batch)
         loss_sup = outputs['loss']
-        
+
         # semi
         ## teacher forward
         outputs_semi = self.predict_semi_forward(semi_batch)
@@ -2389,15 +2389,16 @@ class SemiTrainer(Trainer):
         semi_non_entity_mask = semi_labels == 0 # XXX: other id
         semi_valid_entity_mask = semi_valid_mask & ~semi_non_entity_mask
         semi_valid_non_entity_mask = semi_valid_mask & semi_non_entity_mask
+        del semi_valid_mask, semi_non_entity_mask
         ## negative sampling
         num_semi_entity, num_semi_non_entity = semi_valid_entity_mask.sum(), semi_valid_non_entity_mask.sum()
         semi_negative_sample_rate = num_semi_entity * self.opts.semi_negative_rate / num_semi_non_entity
-        semi_negative_sample_mask = torch.bernoulli(torch.full_like(
+        semi_valid_non_entity_mask = semi_valid_non_entity_mask & torch.bernoulli(torch.full_like(
             semi_valid_non_entity_mask, semi_negative_sample_rate, dtype=torch.float)) > 0
-        semi_valid_non_entity_mask = semi_valid_non_entity_mask & semi_negative_sample_mask
         ## student forward
         semi_batch["labels"] = torch.full_like(semi_batch["spans_mask"], IGNORE_INDEX)
-        semi_batch["labels"] = torch.where(semi_valid_entity_mask|semi_valid_non_entity_mask, semi_labels, IGNORE_INDEX)
+        semi_batch["labels"] = torch.where(
+            semi_valid_entity_mask|semi_valid_non_entity_mask, semi_labels, IGNORE_INDEX)
         outputs_semi = self.train_forward(semi_batch)
         loss_semi = outputs_semi['loss']
 
@@ -2422,6 +2423,26 @@ class SemiTrainer(Trainer):
             return outputs, should_logging, should_save
         else:
             return None, should_logging, should_save
+
+    def build_state_object(self, **kwargs):
+        '''
+        save state object
+        '''
+        states = {
+            'teacher': self.teacher.module if hasattr(self.teacher, "module") else self.teacher,
+            'student': self.student.module if hasattr(self.student, "module") else self.student,
+            'opts': self.opts,
+            'optimizer': self.optimizer,
+            'global_step': self.global_step,
+        }
+        if self.scheduler is not None:
+            states['scheduler'] = self.scheduler
+        if self.use_amp:
+            states['scaler'] = self.scaler
+        for key, value in kwargs.items():
+            if key not in states:
+                states[key] = value
+        return states
 
     # TODO 多机分布式训练
     def train(self, train_data, semi_data, dev_data=None, resume_path=None, start_epoch=1, state_to_save=dict()):
