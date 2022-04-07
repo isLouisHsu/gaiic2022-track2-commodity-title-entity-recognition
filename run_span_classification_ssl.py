@@ -56,9 +56,19 @@ from torchblocks.core import TrainerBase
 from torchblocks.utils.options import Argparser
 from torchblocks.utils.logger import Logger
 from torchblocks.utils.device import prepare_device
-from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
+from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file, save_model, load_model
 from torchblocks.utils.paths import find_all_checkpoints
 from torchblocks.utils.seed import seed_everything
+from torchblocks.callback.model_checkpoint import (
+    ModelCheckpoint,
+    CHECKPOINT_DIR_PREFIX,
+    WEIGHTS_NAME,
+    TRAINER_STATE_NAME,
+    OPTIMIZER_NAME,
+    SCHEDULER_NAME,
+    SCALER_NAME,
+    VOCAB_NAME,
+)
 from tokenization_bert_zh import BertTokenizerZh
 from utils import get_spans_bio, check_example, get_synonym
 
@@ -1267,7 +1277,7 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         ),
     ]
     return data_class(data_name, data_dir, data_type, process_piplines, 
-        context_size=context_size, use_cache=False, **kwargs)
+        context_size=context_size, use_cache=True, **kwargs)
 
 
 class CoAttention(nn.Module):
@@ -2306,6 +2316,28 @@ class Trainer(TrainerBase):
         if use_wandb:
             wandb.log(metric_key_value_map)
 
+class SemiModelCheckpoint(ModelCheckpoint):
+
+    weights_name = 'pytorch_model.%s.bin'
+
+    def _save_model(self, state):
+        self._save_model_support(state, "teacher")
+        self._save_model_support(state, "student")
+
+    def _save_model_support(self, state, key):
+        assert key in state, f"state['{key}'] does not exist."
+        if self.verbose:
+            logger.info(f"Saving {key} checkpoint to %s", state['save_dir'])
+        model = state[key]
+        if hasattr(model, 'save'):
+            model.save(state['save_dir'])
+        elif hasattr(model, 'save_pretrained'):
+            model.save_pretrained(state['save_dir'])
+        else:
+            model_path = os.path.join(state['save_dir'], self.weights_name % key)
+            save_model(model, model_path)
+        state.pop(key)
+
 class SemiTrainer(Trainer):
 
     def __init__(self,
@@ -2333,15 +2365,52 @@ class SemiTrainer(Trainer):
         )
         self.student = self.model
         self.teacher = deepcopy(model)
+        self.model_checkpoint = SemiModelCheckpoint(
+            mode=opts.checkpoint_mode,
+            monitor=opts.checkpoint_monitor,
+            ckpt_dir=opts.output_dir,
+            verbose=opts.checkpoint_verbose,
+            save_best=opts.checkpoint_save_best,
+            keys_to_ignore_on_save=self.keys_to_ignore_on_checkpoint_save
+        )
 
-    def build_semi_dataloader(self, semi_data):
+    def resume_from_checkpoint(self, resume_path=None):
+        '''
+        Check if continuing training from a checkpoint
+        '''
+        if resume_path is not None:
+            optimizer_path = os.path.join(resume_path, OPTIMIZER_NAME)
+            scheduler_path = os.path.join(resume_path, SCHEDULER_NAME)
+            state_path = os.path.join(resume_path, TRAINER_STATE_NAME)
+            teacher_model_path = os.path.join(resume_path, self.model_checkpoint.weights_name % "teacher")
+            student_model_path = os.path.join(resume_path, self.model_checkpoint.weights_name % "student")
+            scaler_path = os.path.join(resume_path, SCALER_NAME)
+            if is_file(optimizer_path):
+                self.optimizer.load_state_dict(torch.load(optimizer_path, map_location=self.device))
+            if is_file(scheduler_path):
+                self.scheduler.load_state_dict(torch.load(scheduler_path))
+            if is_file(state_path):
+                state = torch.load(state_path)
+                if self.model_checkpoint and hasattr(state, 'best_score'):
+                    self.model_checkpoint.best = state['best_score']
+                del state
+            if is_file(teacher_model_path):
+                if self.use_amp and is_file(scaler_path):
+                    self.scaler.load_state_dict(torch.load(scaler_path))
+                load_model(self.teacher, teacher_model_path, device=self.device)
+            if is_file(student_model_path):
+                if self.use_amp and is_file(scaler_path):
+                    self.scaler.load_state_dict(torch.load(scaler_path))
+                load_model(self.student, student_model_path, device=self.device)
+
+    def build_semi_dataloader(self, semi_data, num_batch_per_epoch):
         '''
         Load train datasets
         '''
         if isinstance(semi_data, DataLoader):
             return semi_data
         elif isinstance(semi_data, Dataset):
-            batch_size = self.opts.per_gpu_train_batch_size * max(1, self.device_num)
+            batch_size = len(semi_data) // num_batch_per_epoch
             sampler = RandomSampler(semi_data) if not hasattr(semi_data, 'sampler') else semi_data.sampler
             collate_fn = semi_data.collate_fn if hasattr(semi_data, 'collate_fn') else None
             data_loader = DataLoader(semi_data,
@@ -2354,7 +2423,7 @@ class SemiTrainer(Trainer):
         else:
             raise TypeError("train_data type{} not support".format(type(semi_data)))
 
-    def predict_semi_forward(self, batch):
+    def predict_forward(self, batch):
         self.teacher.eval()
         inputs = self.build_batch_inputs(batch)
         with torch.no_grad():
@@ -2381,7 +2450,7 @@ class SemiTrainer(Trainer):
 
         # semi
         ## teacher forward
-        outputs_semi = self.predict_semi_forward(semi_batch)
+        outputs_semi = self.predict_forward(semi_batch)
         semi_probas = outputs_semi["logits"].softmax(dim=-1)
         semi_probas, semi_labels = semi_probas.max(dim=-1)
         ## valid foreground & background mask
@@ -2393,8 +2462,8 @@ class SemiTrainer(Trainer):
         ## negative sampling
         num_semi_entity, num_semi_non_entity = semi_valid_entity_mask.sum(), semi_valid_non_entity_mask.sum()
         semi_negative_sample_rate = num_semi_entity * self.opts.semi_negative_rate / num_semi_non_entity
-        semi_valid_non_entity_mask = semi_valid_non_entity_mask & torch.bernoulli(torch.full_like(
-            semi_valid_non_entity_mask, semi_negative_sample_rate, dtype=torch.float)) > 0
+        semi_valid_non_entity_mask = semi_valid_non_entity_mask & (torch.bernoulli(torch.full_like(
+            semi_valid_non_entity_mask, semi_negative_sample_rate, dtype=torch.float)) > 0)
         ## student forward
         semi_batch["labels"] = torch.full_like(semi_batch["spans_mask"], IGNORE_INDEX)
         semi_batch["labels"] = torch.where(
@@ -2447,7 +2516,7 @@ class SemiTrainer(Trainer):
     # TODO 多机分布式训练
     def train(self, train_data, semi_data, dev_data=None, resume_path=None, start_epoch=1, state_to_save=dict()):
         train_dataloader = self.build_train_dataloader(train_data)
-        semi_dataloader = self.build_semi_dataloader(semi_data)
+        semi_dataloader = self.build_semi_dataloader(semi_data, len(train_dataloader))
         num_training_steps = len(train_dataloader) // self.gradient_accumulation_steps * self.num_train_epochs
         self.steps_in_epoch = len(train_dataloader)
         if self.scheduler is None:

@@ -4,6 +4,14 @@
 
 ## 更新
 
+### 2022/4/7
+1. `nezha-50k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132536474956525。
+
+TODO:
+1. MacBERT/PERT；
+2. 标签清洗，用K折，待large模型微调；
+3. 半监督：伪标签/在线；
+
 ### 2022/4/5
 
 1. `large`微调，全量数据，FGM0.5，`nezha-large-100k-spanv1-datav3-lr2e-5-wd0.01-dropout0.1-span35-e6-bs16x2-sinusoidal-biaffine-fgm0.5`，线上0.8084194384827382；
@@ -11,11 +19,6 @@
 
 ### 2022/4/4
 1. `large`微调，全量数据，FGM0.5，`nezha-large-100k-spanv1-datav3-lr2e-5-wd0.01-dropout0.1-span35-e6-bs16x2-sinusoidal-biaffine-fgm0.5`，待训练。
-
-TODO:
-1. MacBERT/PERT；
-2. 标签清洗，用K折，待large模型微调；
-3. 半监督：伪标签/在线；
 
 ### 2022/4/4
 1. 同义词替换增强，版本`nezha-50k-spanv1-datav2-augv1-lr3e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0`，线下0.8076；
