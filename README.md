@@ -3,14 +3,23 @@
 - 物品共现关系统计
 
 ## 更新
+### 2022/4/8
+1. 继续预训练100k步，`nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2`，最终MLM损失1.6174659729003906；
+2. `nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132536474956525；
+3. 完善半监督代码`run_span_classification_ssl.py`，实验效果不佳；
+4. BERT中文分词器`_clean_text`函数支持控制字符分词；
+5. huggingface上传`nezha-cn-wwm-base`及`nezha-cn-wwm-large`(private)。
+
+TODO:
+1. SWA
+2. 参考[ccks2021 中文NLP地址要素解析 冠军方案 - 知乎](https://zhuanlan.zhihu.com/p/449676168)内Kaggle优化策略；
+3. K折：1)数据清洗？2）伪标签；
+4. MC-Dropout，Albert-style；
+5. NMS：尝试以类别概率为评分；
+6. Labeltxt代码优化：1)复制实体时越界问题；2)未打开文件时不支持界面点击。
 
 ### 2022/4/7
 1. `nezha-50k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132536474956525。
-
-TODO:
-1. MacBERT/PERT；
-2. 标签清洗，用K折，待large模型微调；
-3. 半监督：伪标签/在线；
 
 ### 2022/4/5
 

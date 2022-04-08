@@ -19,13 +19,15 @@ python run_span_classification_ssl.py \
     --train_input_file=train.all.jsonl \
     --semi_input_file=semi.all.jsonl \
     --test_input_file=word_per_line_preliminary_A.jsonl \
+    --max_train_examples=1000 \
+    --max_semi_examples=1000 \
     --do_lower_case \
     --output_dir=outputs/ \
     --do_train --do_predict \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
     --test_max_seq_length=128 \
-    --per_gpu_train_batch_size=32 \
+    --per_gpu_train_batch_size=16 \
     --per_gpu_eval_batch_size=32 \
     --per_gpu_test_batch_size=32 \
     --gradient_accumulation_steps=1 \

@@ -1589,6 +1589,7 @@ class SpanClassificationHead(nn.Module):
             probas = logits_or_labels.softmax(dim=-1)
             probas[..., other_id] = torch.where(probas[..., other_id] < thresh, 
                 torch.zeros_like(probas[..., other_id]), probas[..., other_id])
+            # probas, labels = probas.max(dim=-1) # TODO: 实体类别概率
             _, labels = probas.max(dim=-1)
             probas = 1 - probas[..., other_id]  # 是实体的概率
         else:
@@ -1702,8 +1703,9 @@ class SpanClassificationLoss(nn.Module):
     ):
         num_labels = logits.size(-1)
         loss = self.loss_fct(logits.view(-1, num_labels), labels.view(-1))
-        activate_mask = mask.view(-1) == 1
+        activate_mask = ((mask == 1) & (labels != IGNORE_INDEX)).view(-1)
         loss = loss[activate_mask]
+        if loss.size(0) == 0: return 0
         if self.reduction == "mean":
             loss = loss.mean()
         elif self.reduction == "sum":

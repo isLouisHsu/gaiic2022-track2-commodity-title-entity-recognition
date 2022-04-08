@@ -57,7 +57,7 @@ from torchblocks.utils.options import Argparser
 from torchblocks.utils.logger import Logger
 from torchblocks.utils.device import prepare_device
 from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file, save_model, load_model
-from torchblocks.utils.paths import find_all_checkpoints
+from torchblocks.utils.paths import find_all_checkpoints, json_to_text
 from torchblocks.utils.seed import seed_everything
 from torchblocks.callback.model_checkpoint import (
     ModelCheckpoint,
@@ -1715,8 +1715,9 @@ class SpanClassificationLoss(nn.Module):
     ):
         num_labels = logits.size(-1)
         loss = self.loss_fct(logits.view(-1, num_labels), labels.view(-1))
-        activate_mask = mask.view(-1) == 1
+        activate_mask = ((mask == 1) & (labels != IGNORE_INDEX)).view(-1)
         loss = loss[activate_mask]
+        if loss.size(0) == 0: return 0
         if self.reduction == "mean":
             loss = loss.mean()
         elif self.reduction == "sum":
@@ -2318,7 +2319,22 @@ class Trainer(TrainerBase):
 
 class SemiModelCheckpoint(ModelCheckpoint):
 
-    weights_name = 'pytorch_model.%s.bin'
+    def _save_vocab(self, state):
+        self._save_vocab_support(state, "teacher")
+        self._save_vocab_support(state, "student")
+        state.pop('vocab')
+
+    def _save_vocab_support(self, state, key):
+        if state.get('vocab', None):
+            vocab = state['vocab']
+            if hasattr(vocab, 'save_pretrained'):
+                vocab.save_pretrained(os.path.join(state['save_dir'], key))
+            else:
+                file_dir = os.path.join(state['save_dir'], key)
+                os.makedirs(file_dir, exist_ok=True)
+                file_path = os.path.join(file_dir, VOCAB_NAME)
+                if isinstance(vocab, dict):
+                    json_to_text(file_path=file_path, data=vocab)
 
     def _save_model(self, state):
         self._save_model_support(state, "teacher")
@@ -2330,12 +2346,13 @@ class SemiModelCheckpoint(ModelCheckpoint):
             logger.info(f"Saving {key} checkpoint to %s", state['save_dir'])
         model = state[key]
         if hasattr(model, 'save'):
-            model.save(state['save_dir'])
+            model.save(os.path.join(state['save_dir'], key))
         elif hasattr(model, 'save_pretrained'):
-            model.save_pretrained(state['save_dir'])
+            model.save_pretrained(os.path.join(state['save_dir'], key))
         else:
-            model_path = os.path.join(state['save_dir'], self.weights_name % key)
-            save_model(model, model_path)
+            model_dir = os.path.join(state['save_dir'], key)
+            os.makedirs(model_dir, exist_ok=True)
+            save_model(model, os.path.join(model_dir, WEIGHTS_NAME))
         state.pop(key)
 
 class SemiTrainer(Trainer):
@@ -2461,9 +2478,10 @@ class SemiTrainer(Trainer):
         del semi_valid_mask, semi_non_entity_mask
         ## negative sampling
         num_semi_entity, num_semi_non_entity = semi_valid_entity_mask.sum(), semi_valid_non_entity_mask.sum()
-        semi_negative_sample_rate = num_semi_entity * self.opts.semi_negative_rate / num_semi_non_entity
-        semi_valid_non_entity_mask = semi_valid_non_entity_mask & (torch.bernoulli(torch.full_like(
-            semi_valid_non_entity_mask, semi_negative_sample_rate, dtype=torch.float)) > 0)
+        if self.opts.semi_negative_rate is not None:
+            semi_negative_sample_rate = num_semi_entity * self.opts.semi_negative_rate / num_semi_non_entity
+            semi_valid_non_entity_mask = semi_valid_non_entity_mask & (torch.bernoulli(torch.full_like(
+                semi_valid_non_entity_mask, semi_negative_sample_rate, dtype=torch.float)) > 0)
         ## student forward
         semi_batch["labels"] = torch.full_like(semi_batch["spans_mask"], IGNORE_INDEX)
         semi_batch["labels"] = torch.where(
@@ -2600,7 +2618,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    sys.argv.append("outputs/gaiic_nezha_nezha-50k-ssl-spanv1-datav2-lr3e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-50k-ssl-spanv1-datav2-lr3e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0_opts.json")
+    # sys.argv.append("outputs/gaiic_nezha_nezha-50k-ssl-spanv1-datav2-lr3e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-50k-ssl-spanv1-datav2-lr3e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -2617,7 +2635,7 @@ def build_opts():
         group.add_argument("--max_test_examples", type=int, default=None)
         group.add_argument("--max_semi_examples", type=int, default=None)
         group.add_argument("--semi_confident_thresh", type=float, default=0.9)
-        group.add_argument("--semi_negative_rate", type=float, default=5.0)
+        group.add_argument("--semi_negative_rate", type=float, default=None)
         group.add_argument("--semi_loss_weight", type=float, default=1.0)
         group.add_argument("--semi_teacher_momentum", type=float, default=0.999)
         group.add_argument("--context_size", type=int, default=0)
@@ -2842,57 +2860,59 @@ def main(opts):
         if opts.eval_all_checkpoints:
             checkpoints = find_all_checkpoints(checkpoint_dir=opts.output_dir)
         logger.info("Evaluate the following checkpoints: %s", checkpoints)
-        for checkpoint in checkpoints:
-            prefix = checkpoint.split("/")[-1]
-            model = model_class.from_pretrained(checkpoint, config=config)
-            model.to(opts.device)
-            trainer.model = model
-            trainer.evaluate(dev_data=dev_dataset, save_result=True, save_dir=prefix)
+        for checkpoint_root in checkpoints:
+            prefix = checkpoint_root.split("/")[-1]
+            for model_name in ["teacher", "student"]:
+                checkpoint = os.path.join(checkpoint_root, model_name)
+                model = model_class.from_pretrained(checkpoint, config=config)
+                model.to(opts.device)
+                trainer.teacher = model
+                trainer.evaluate(dev_data=dev_dataset, save_result=True, save_dir=prefix)
 
-            # 保存为样本，用于分析
-            char2token = ProcessConvertLevel(tokenizer, "char2token", lang="zh")
-            token2char = ProcessConvertLevel(tokenizer, "token2char", lang="zh")
-            results = load_pickle(os.path.join(checkpoint, f"dev_eval_results.pkl"))
+                # 保存为样本，用于分析
+                char2token = ProcessConvertLevel(tokenizer, "char2token", lang="zh")
+                token2char = ProcessConvertLevel(tokenizer, "token2char", lang="zh")
+                results = load_pickle(os.path.join(checkpoint, f"dev_eval_results.pkl"))
 
-            entities = list(chain(*[batch["groundtruths"] for batch in results]))
-            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
-            with open(os.path.join(checkpoint, "groundtruths.json"), "w") as f:
-                for example in examples:
-                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
-            with open(os.path.join(checkpoint, "groundtruths.span.jsonl"), "w") as f:
-                for example in examples:
-                    text = example["text"]
-                    sent_start, sent_end = example["sent_start"], example["sent_end"]
-                    dummy = dict(text=text, entities=[[(sent_start, sent_end, "_", text)]])
-                    example["sent_start"], example["sent_end"] = char2token(dummy)["entities"][0][0][:2]
-                    example["text"] = example["text"][example["sent_start"]: example["sent_end"]]
-                    text = "".join(example["text"])
-                    entities = []
-                    for i, (start, end, label, string) in enumerate(example["entities"]):
-                        entities.append((start, end, label, text[start: end]))
-                    example["text"] = text
-                    example["entities"] = entities
-                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
+                entities = list(chain(*[batch["groundtruths"] for batch in results]))
+                examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
+                with open(os.path.join(checkpoint, "groundtruths.json"), "w") as f:
+                    for example in examples:
+                        f.write(json.dumps(example, ensure_ascii=False) + "\n")
+                with open(os.path.join(checkpoint, "groundtruths.span.jsonl"), "w") as f:
+                    for example in examples:
+                        text = example["text"]
+                        sent_start, sent_end = example["sent_start"], example["sent_end"]
+                        dummy = dict(text=text, entities=[[(sent_start, sent_end, "_", text)]])
+                        example["sent_start"], example["sent_end"] = char2token(dummy)["entities"][0][0][:2]
+                        example["text"] = example["text"][example["sent_start"]: example["sent_end"]]
+                        text = "".join(example["text"])
+                        entities = []
+                        for i, (start, end, label, string) in enumerate(example["entities"]):
+                            entities.append((start, end, label, text[start: end]))
+                        example["text"] = text
+                        example["entities"] = entities
+                        f.write(json.dumps(example, ensure_ascii=False) + "\n")
 
-            entities = list(chain(*[batch["predictions"] for batch in results]))
-            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
-            with open(os.path.join(checkpoint, "evaluations.json"), "w") as f:
-                for example in examples:
-                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
-            with open(os.path.join(checkpoint, "evaluations.span.jsonl"), "w") as f:
-                for example in examples:
-                    text = example["text"]
-                    sent_start, sent_end = example["sent_start"], example["sent_end"]
-                    dummy = dict(text=text, entities=[[(sent_start, sent_end, "_", text)]])
-                    example["sent_start"], example["sent_end"] = char2token(dummy)["entities"][0][0][:2]
-                    example["text"] = example["text"][example["sent_start"]: example["sent_end"]]
-                    text = "".join(example["text"])
-                    entities = []
-                    for i, (start, end, label, string) in enumerate(example["entities"]):
-                        entities.append((start, end, label, text[start: end]))
-                    example["text"] = text
-                    example["entities"] = entities
-                    f.write(json.dumps(example, ensure_ascii=False) + "\n")
+                entities = list(chain(*[batch["predictions"] for batch in results]))
+                examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
+                with open(os.path.join(checkpoint, "evaluations.json"), "w") as f:
+                    for example in examples:
+                        f.write(json.dumps(example, ensure_ascii=False) + "\n")
+                with open(os.path.join(checkpoint, "evaluations.span.jsonl"), "w") as f:
+                    for example in examples:
+                        text = example["text"]
+                        sent_start, sent_end = example["sent_start"], example["sent_end"]
+                        dummy = dict(text=text, entities=[[(sent_start, sent_end, "_", text)]])
+                        example["sent_start"], example["sent_end"] = char2token(dummy)["entities"][0][0][:2]
+                        example["text"] = example["text"][example["sent_start"]: example["sent_end"]]
+                        text = "".join(example["text"])
+                        entities = []
+                        for i, (start, end, label, string) in enumerate(example["entities"]):
+                            entities.append((start, end, label, text[start: end]))
+                        example["text"] = text
+                        example["entities"] = entities
+                        f.write(json.dumps(example, ensure_ascii=False) + "\n")
 
     if opts.do_predict:
         checkpoints = []
@@ -2901,11 +2921,12 @@ def main(opts):
             check_dir(checkpoint)
             checkpoints.append(checkpoint)
         logger.info("Evaluate the following checkpoints: %s", checkpoints)
-        for checkpoint in checkpoints:
-            prefix = checkpoint.split("/")[-1]
+        for checkpoint_root in checkpoints:
+            prefix = checkpoint_root.split("/")[-1]
+            checkpoint = os.path.join(checkpoint_root, "teacher")
             model = model_class.from_pretrained(checkpoint, config=config)
             model.to(opts.device)
-            trainer.model = model
+            trainer.teacher = model
             trainer.predict(test_data=test_dataset, save_result=True, save_dir=prefix)
 
             # 保存为样本，用于分析

@@ -89,7 +89,7 @@ done
 
 export WANDB_DISABLED=true
 data_dir=data/processed/pretrain-v1
-version=nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-50k-warmup30k-bs64x2
+version=nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-50k-warmup3k-bs64x2
 python run_mlm_wwm.py \
     --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
     --model_type=nezha \
@@ -125,7 +125,7 @@ python run_mlm_wwm.py \
 
 export WANDB_DISABLED=true
 data_dir=data/processed/pretrain-v1
-version=nezha-cn-base-wwm-seq128-lr3e-5-mlm0.15-100k-warmup30k-bs64x2
+version=nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2
 python run_mlm_wwm.py \
     --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
     --model_type=nezha \

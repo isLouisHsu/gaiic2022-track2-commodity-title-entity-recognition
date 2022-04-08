@@ -111,13 +111,15 @@ if __name__ == "__main__":
                 f.write(json.dumps(example, ensure_ascii=False) + "\n")
     
     if args.unlabeled_files is not None:
-        unlabeled_examples = []
+        unlabeled_examples = []; count = 0
         for unlabeled_file in args.unlabeled_files:
-            unlabeled_examples.extend(create_examples(generate_examples(unlabeled_file), "train"))
-        print(f"#semi={len(unlabeled_examples)}")
-        with open(os.path.join(args.output_dir, f"semi.all.jsonl"), "w") as f:
-            for example in unlabeled_examples:
-                f.write(json.dumps(example, ensure_ascii=False) + "\n")
+            # unlabeled_examples.extend(create_examples(generate_examples(unlabeled_file), "train"))
+            with open(unlabeled_file, "r") as f:
+                for line in f.readlines():
+                    unlabeled_examples.append(dict(
+                        guid=f"semi-{count}", text=list(line),
+                        entities=[], sent_start=0, sent_end=len(line)
+                    ))
     
     for test_file in args.test_files:
         test_examples = create_examples(generate_examples(test_file), "test")
