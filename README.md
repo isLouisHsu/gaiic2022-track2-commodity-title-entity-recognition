@@ -9,14 +9,15 @@
 3. 完善半监督代码`run_span_classification_ssl.py`，实验效果不佳；
 4. BERT中文分词器`_clean_text`函数支持控制字符分词；
 5. huggingface上传`nezha-cn-wwm-base`及`nezha-cn-wwm-large`(private)。
+6. NMS尝试以类别概率为评分：效果差别不大，召回率略高、精确率略低；
+7. MC-Dropout，效果一般，召回率较低。
 
 TODO:
 1. SWA
 2. 参考[ccks2021 中文NLP地址要素解析 冠军方案 - 知乎](https://zhuanlan.zhihu.com/p/449676168)内Kaggle优化策略；
 3. K折：1)数据清洗？2）伪标签；
-4. MC-Dropout，Albert-style；
-5. NMS：尝试以类别概率为评分；
-6. Labeltxt代码优化：1)复制实体时越界问题；2)未打开文件时不支持界面点击。
+4. Albert-style；
+5. Labeltxt代码优化：1)复制实体时越界问题；2)未打开文件时不支持界面点击。
 
 ### 2022/4/7
 1. `nezha-50k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132536474956525。

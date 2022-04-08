@@ -1121,7 +1121,7 @@ python run_span_classification_v1.py \
     --test_input_file=word_per_line_preliminary_A.jsonl \
     --do_lower_case \
     --output_dir=outputs/ \
-    --do_predict \
+    --do_eval \
     --evaluate_during_training \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
@@ -1256,7 +1256,7 @@ python run_span_classification_v1.py \
     --test_input_file=word_per_line_preliminary_A.jsonl \
     --do_lower_case \
     --output_dir=outputs/ \
-    --do_train --do_predict \
+    --do_predict \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
     --test_max_seq_length=128 \

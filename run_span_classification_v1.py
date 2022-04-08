@@ -1839,6 +1839,8 @@ class ModelForSpanClassification(PreTrainedModel):
         output_hidden_states = self.config.use_last_n_layers is not None
 
         if not (self.config.conditional or self.config.use_syntactic):
+
+            # TODO: Albert-style
             outputs = self.base_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -2304,7 +2306,48 @@ class Trainer(TrainerBase):
                 metric_key_value_map[key] = self.records['result'][key]
         if use_wandb:
             wandb.log(metric_key_value_map)
+    
+    @torch.no_grad()
+    def predict_forward(self, batch):
+        mc_dropout_rate = self.opts.mc_dropout_rate
+        mc_dropout_times = self.opts.mc_dropout_times
+        do_mc_dropout = mc_dropout_rate is not None and mc_dropout_times is not None
+        
+        # eval mode
+        self.model.eval()
+        if do_mc_dropout:
+            # for module in self.model.modules():
+            #     if isinstance(module, nn.Dropout):
+            #         module.p = mc_dropout_rate
+            #         module.training = True
+            self.model.dropout.p = mc_dropout_rate
+            self.model.dropout.training = True
+        
+        # forward
+        inputs = self.build_batch_inputs(batch)
+        if do_mc_dropout:
+            outputs = None
+            for i in range(mc_dropout_times):
+                if i == 0:
+                    outputs = self.model(**inputs)
+                    outputs["logits"] /= mc_dropout_times
+                else:
+                    outputs["logits"] += self.model(**inputs)["logits"] / mc_dropout_times
+            outputs["predictions"] = self.model.decode(
+                outputs["logits"], inputs["spans"], inputs["spans_mask"],
+                self.opts.decode_thresh, self.opts.label2id, self.opts.id2label
+            )
+        else:
+            outputs = self.model(**inputs)
+        if 'loss' in outputs and outputs['loss'] is not None:
+            outputs['loss'] = outputs['loss'].mean().detach().item()
 
+        outputs = {key: value.detach().cpu() if isinstance(value, torch.Tensor) else value for key, value in
+                   outputs.items()}
+        batch = {key: value for key, value in dict(batch, **outputs).items() if
+                 key not in self.keys_to_ignore_on_result_save}
+        return batch
+    
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForSpanClassification, BertTokenizerZh),
     "nezha": (BertConfig, NeZhaForSpanClassification, BertTokenizerZh),
@@ -2355,6 +2398,8 @@ def build_opts():
         group.add_argument("--do_biaffine", action="store_true")
         group.add_argument("--use_syntactic", action="store_true")
         group.add_argument("--syntactic_upos_size", type=int, default=21)
+        group.add_argument("--mc_dropout_rate", type=float, default=None)
+        group.add_argument("--mc_dropout_times", type=int, default=None)
         opts = parser.parse_args_from_parser(parser)
 
     # TODO: for debug
