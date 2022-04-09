@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import random
 from typing import *
 from argparse import ArgumentParser
 from sklearn.model_selection import KFold
@@ -77,6 +78,8 @@ if __name__ == "__main__":
     parser.add_argument("--test_files", type=str, nargs="+", default=[
         "data/raw/preliminary_test_a/word_per_line_preliminary_A.txt",
     ])
+    parser.add_argument("--start_unlabeled_files", type=int, default=None)
+    parser.add_argument("--end_unlabeled_files", type=int, default=None)
     parser.add_argument("--output_dir", type=str, default="data/processed/")
     parser.add_argument("--n_splits", type=int, default=5)
     parser.add_argument("--shuffle", action="store_true")
@@ -113,13 +116,21 @@ if __name__ == "__main__":
     if args.unlabeled_files is not None:
         unlabeled_examples = []; count = 0
         for unlabeled_file in args.unlabeled_files:
-            # unlabeled_examples.extend(create_examples(generate_examples(unlabeled_file), "train"))
             with open(unlabeled_file, "r") as f:
                 for line in f.readlines():
                     unlabeled_examples.append(dict(
-                        guid=f"semi-{count}", text=list(line),
-                        entities=[], sent_start=0, sent_end=len(line)
+                        guid=f"semi-{count}", text=list(line.strip()),
+                        entities=None, sent_start=0, sent_end=len(line)
                     ))
+        if args.start_unlabeled_files is not None and args.end_unlabeled_files is not None:
+            # random.shuffle(unlabeled_examples)
+            unlabeled_examples = unlabeled_examples[
+                args.start_unlabeled_files: args.end_unlabeled_files]
+        print(f"#semi={len(unlabeled_examples)}")
+        with open(os.path.join(args.output_dir, 
+                f"semi.{args.start_unlabeled_files}:{args.end_unlabeled_files}.jsonl"), "w") as f:
+            for example in unlabeled_examples:
+                f.write(json.dumps(example, ensure_ascii=False) + "\n")
     
     for test_file in args.test_files:
         test_examples = create_examples(generate_examples(test_file), "test")

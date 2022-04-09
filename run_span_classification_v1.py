@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import json
+from tkinter.tix import Tree
 import yaml
 import math
 import random
@@ -2190,6 +2191,54 @@ class SequenceLabelingScoreSpan(SequenceLabelingScore):
 
 class Trainer(TrainerBase):
 
+    def build_model_param_optimizer(self, model):
+        '''
+        若需要对不同模型赋予不同学习率，则指定`base_model_name`,
+        在`transformer`模块中，默认为`base_model_name=`base_model`.
+        对于base_model使用learning_rate，
+        其余统一使用other_learning_rate
+        '''
+        msg = (f"The initial learning rate for model params : {self.opts.learning_rate} ,"
+                f"and {self.opts.other_learning_rate}"
+                )
+        self.logger.info(msg)
+
+        no_decay = ["bias", 'LayerNorm.weight']
+        optimizer_grouped_parameters = []
+        base_model = getattr(model, self.opts.base_model_name)
+        base_model_param = list(base_model.named_parameters())
+        base_model_param_ids = [id(p) for n, p in base_model_param]
+        other_model_param = [(n, p) for n, p in model.named_parameters() if id(p) not in base_model_param_ids]
+
+        if self.opts.layer_wise_lr_decay is None:
+            optimizer_grouped_parameters.extend(
+                self._param_optimizer(base_model_param, self.opts.learning_rate, no_decay, self.opts.weight_decay))
+        else:
+            layer_decay_map = {
+                i: self.opts.learning_rate * (
+                    self.opts.layer_wise_lr_decay ** (self.model.config.num_hidden_layers - i - 1)
+                ) 
+                for i in range(self.model.config.num_hidden_layers)
+            }
+            for name, params in base_model_param:
+                named_params = [(name, params)]
+                if name.startswith("embeddings"):
+                    optimizer_grouped_parameters.extend(
+                        self._param_optimizer(named_params, layer_decay_map[0], no_decay, self.opts.weight_decay))
+                elif name.startswith("encoder"):
+                    layer_no = int(name.split(".")[2])
+                    layer_lr = layer_decay_map[layer_no]
+                    optimizer_grouped_parameters.extend(
+                        self._param_optimizer(named_params, layer_lr, no_decay, self.opts.weight_decay))
+                else:
+                    optimizer_grouped_parameters.extend(
+                        self._param_optimizer(named_params, self.opts.learning_rate, no_decay, self.opts.weight_decay))
+
+        optimizer_grouped_parameters.extend(
+            self._param_optimizer(other_model_param, self.opts.other_learning_rate, no_decay,
+                                    self.opts.weight_decay))
+        return optimizer_grouped_parameters
+
     def evaluate(self, dev_data, prefix_metric=None, save_dir=None, save_result=False, file_name=None):
         '''
         Evaluate the model on a validation set
@@ -2375,6 +2424,7 @@ def build_opts():
         group.add_argument("--max_test_examples", type=int, default=None)
         group.add_argument("--context_size", type=int, default=0)
         group.add_argument("--classifier_dropout", type=float, default=0.1)
+        group.add_argument("--layer_wise_lr_decay", type=float, default=None)
         group.add_argument("--use_last_n_layers", type=int, default=None)
         group.add_argument("--agg_last_n_layers", type=str, default="mean")
         group.add_argument("--negative_sampling", type=float, default=0.0)
@@ -2518,6 +2568,7 @@ def main(opts):
         num_labels=opts.num_labels, id2label=opts.id2label, label2id=opts.label2id,
         conditional=False,
         classifier_dropout=opts.classifier_dropout, 
+        layer_wise_lr_decay=opts.layer_wise_lr_decay,
         use_last_n_layers=opts.use_last_n_layers,
         agg_last_n_layers=opts.agg_last_n_layers,
         negative_sampling=opts.negative_sampling,
@@ -2668,12 +2719,13 @@ def main(opts):
             #     for example in examples:
             #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
             # 保存为提交格式
-            with open(os.path.join(checkpoint, "predictions.txt"), "w") as f:
+            with open(os.path.join(checkpoint, f"{opts.test_input_file}.predictions.txt"), "w") as f:
                 for example_no, example in enumerate(examples):
                     tokens = example["text"]
                     ner_tags = entities_to_ner_tags(len(example["text"]), example["entities"])
                     for token, tag in zip(tokens, ner_tags):
                         f.write(f"{token} {tag}\n")
+                    f.write(f"\n")
 
     if opts.do_check:
         # check dataset & decode function

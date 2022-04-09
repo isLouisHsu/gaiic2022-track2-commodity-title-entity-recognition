@@ -3,6 +3,20 @@
 - 物品共现关系统计
 
 ## 更新
+
+### 2022/4/9
+1. grouped llrd，`nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-llrd0.95`，线上0.8134104896855145；
+2. 伪标签，`nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8135514749209326；
+3. Labeltxt代码优化：1)复制实体时越界问题；2)未打开文件时不支持界面点击;
+
+TODO:
+1. cosine学习率
+2. SWA
+3. 参考[ccks2021 中文NLP地址要素解析 冠军方案 - 知乎](https://zhuanlan.zhihu.com/p/449676168)内Kaggle优化策略；
+4. K折：1)数据清洗？2）伪标签；
+5. Albert-style；
+6. [Weighted Layer Pooling](https://www.kaggle.com/code/rhtsingh/utilizing-transformer-representations-efficiently/notebook)
+
 ### 2022/4/8
 1. 继续预训练100k步，`nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2`，最终MLM损失1.6174659729003906；
 2. `nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132536474956525；
@@ -11,13 +25,6 @@
 5. huggingface上传`nezha-cn-wwm-base`及`nezha-cn-wwm-large`(private)。
 6. NMS尝试以类别概率为评分：效果差别不大，召回率略高、精确率略低；
 7. MC-Dropout，效果一般，召回率较低。
-
-TODO:
-1. SWA
-2. 参考[ccks2021 中文NLP地址要素解析 冠军方案 - 知乎](https://zhuanlan.zhihu.com/p/449676168)内Kaggle优化策略；
-3. K折：1)数据清洗？2）伪标签；
-4. Albert-style；
-5. Labeltxt代码优化：1)复制实体时越界问题；2)未打开文件时不支持界面点击。
 
 ### 2022/4/7
 1. `nezha-50k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132536474956525。
