@@ -4,10 +4,14 @@
 
 ## 更新
 
-### 2022/4/9
-1. grouped llrd，`nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-llrd0.95`，线上0.8134104896855145；
-2. 伪标签，`nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8135514749209326；
-3. Labeltxt代码优化：1)复制实体时越界问题；2)未打开文件时不支持界面点击;
+### 2022/4/10
+1. 以wordpiece级别进行下游任务微调（之前为char级别），因为预训练截断以wordpiece粒度进行，`run_span_classification_v2`；
+2. 为支持wordpeice级别，完善`BasicTokenizerZh`，具体：
+   - 实现`WordpieceTokenizerZh`，支持返回`offsets_mapping`，并解决`unk`偏移量问题；
+   - 重写`_tokenize`、`_encode_plus`、`prepare_for_model`等函数，支持返回`offsets_mapping`；
+   - 新增`is_pre_tokenized`分词参数，支持将已分词的序列输入分词器，`_batch_encode_plus`待实现；
+3. 修复`ProcessExample2Feature`中`skip_indices`，仅跳过对`cls`、`sep`、`pad`token；
+4. 微调，`nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span20-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv`，已进行数据校验，部分由于分词问题导致的实体存在偏差(F1=0.999686)，线上TODO:
 
 TODO:
 1. cosine学习率
@@ -16,6 +20,12 @@ TODO:
 4. K折：1)数据清洗？2）伪标签；
 5. Albert-style；
 6. [Weighted Layer Pooling](https://www.kaggle.com/code/rhtsingh/utilizing-transformer-representations-efficiently/notebook)
+7. `run_span_classfication_v1`未作数据校验，可能存在问题；
+
+### 2022/4/9
+1. grouped llrd，`nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-llrd0.95`，线上0.8134104896855145；
+2. 伪标签，`nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8135514749209326；
+3. Labeltxt代码优化：1)复制实体时越界问题；2)未打开文件时不支持界面点击;
 
 ### 2022/4/8
 1. 继续预训练100k步，`nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2`，最终MLM损失1.6174659729003906；
