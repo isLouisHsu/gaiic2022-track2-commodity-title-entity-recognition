@@ -1489,3 +1489,89 @@ python run_span_classification_v1.py \
     --do_rdrop \
     --rdrop_weight=0.3 \
     --seed=42
+
+# token-level
+python run_span_classification_v2.py \
+    --experiment_code=nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span50-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v3/ \
+    --train_input_file=train.all.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_check \
+    --train_max_seq_length=512 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=50 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable \
+    --adv_epsilon=1.0 \
+    --do_rdrop \
+    --rdrop_weight=0.3 \
+    --seed=42
+2022-04-10 18:07:18 - INFO - root - {'O': 51240062, '40': 32470, '4': 167271, '14': 22363, '5': 40536, '7': 24890, '11': 60291, '13': 64702, '8': 18280, '16': 22924, '29': 4333, '9': 12917, '12': 12218, '18': 54487, '1': 25043, '3': 9097, '22': 9331, '37': 15134, '39': 4968, '10': 8209, '36': 3626, '34': 260, '31': 850, '38': 30749, '54': 6001, '6': 1511, '30': 540, '15': 810, '2': 3037, '49': 1384, '21': 604, '47': 1343, '23': 22, '20': 571, '50': 389, '46': 26, '41': 495, '43': 88, '48': 167, '19': 132, '52': 174, '33': 14, '28': 34, '32': 47, '44': 36, '25': 29, '17': 31, '42': 11, '24': 5, '53': 5, '26': 1, '35': 3, '51': 16}
+2022-04-10 18:07:18 - INFO - root - [(8, 1), (9, 1), (10, 2), (11, 3), (12, 4), (14, 11), (15, 10), (16, 10), (17, 8), (18, 16), (19, 14), (20, 6), (21, 16), (22, 24), (23, 14), (24, 19), (25, 36), (26, 40), (27, 55), (28, 98), (29, 106), (30, 141), (31, 193), (32, 286), (33, 368), (34, 400), (35, 508), (36, 625), (37, 700), (38, 843), (39, 909), (40, 981), (41, 1157), (42, 1161), (43, 1228), (44, 1264), (45, 1314), (46, 1268), (47, 1289), (48, 1302), (49, 1297), (50, 1286), (51, 1330), (52, 1290), (53, 1245), (54, 1238), (55, 1232), (56, 1180), (57, 1119), (58, 1083), (59, 1086), (60, 1058), (61, 939), (62, 927), (63, 793), (64, 714), (65, 730), (66, 626), (67, 556), (68, 542), (69, 492), (70, 407), (71, 388), (72, 373), (73, 323), (74, 242), (75, 208), (76, 170), (77, 139), (78, 102), (79, 75), (80, 81), (81, 54), (82, 44), (83, 43), (84, 43), (85, 19), (86, 23), (87, 16), (88, 17), (89, 9), (90, 7), (91, 5), (92, 4), (93, 4), (94, 8), (95, 1), (97, 1)]
+2022-04-10 18:07:18 - INFO - root - [(1, 28039), (2, 360224), (3, 194713), (4, 53015), (5, 16659), (6, 5040), (7, 2049), (8, 1108), (9, 553), (10, 311), (11, 223), (12, 148), (13, 85), (14, 57), (15, 45), (16, 39), (17, 21), (18, 10), (19, 16), (20, 8), (21, 5), (22, 3), (23, 3), (24, 3), (26, 1)]
+
+python run_span_classification_v2.py \
+    --experiment_code=nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span30-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v3/ \
+    --train_input_file=train.all.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_train --do_predict \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=30 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable \
+    --adv_epsilon=1.0 \
+    --do_rdrop \
+    --rdrop_weight=0.3 \
+    --seed=42

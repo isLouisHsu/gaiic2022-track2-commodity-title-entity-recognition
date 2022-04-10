@@ -427,9 +427,11 @@ class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
         for (i, line) in enumerate(data):
             guid = f"{data_type}-{i}"
             tokens = line["text"]
+            tokens = "".join(tokens)
             entities = None
             if data_type != "test":
                 entities = line["entities"]
+                entities = [(start, end, label, "".join(string)) for start, end, label, string in entities]
             examples.append(dict(guid=guid, text=tokens, entities=entities, sent_start=0, sent_end=len(tokens)))
         return examples
     
@@ -593,17 +595,16 @@ class LevelConvertorHuggingFace(LevelConvertorBase):
 class LevelConvertorHuggingFaceZh(LevelConvertorHuggingFace):
 
     def _convert(self, text):
-        tokens = [ch if ch in self.tokenizer.vocab else 
-            self.tokenizer.unk_token for ch in text]
-        inputs = self.tokenizer(tokens, is_split_into_words=True, return_tensors="np",)
+        inputs = self.tokenizer(text, is_split_into_words=True, 
+            return_offsets_mapping=True, return_tensors="np")
         tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])[1:-1]
-        offset_mapping = [[i, i + 1] for i, ch in enumerate(tokens)]
+        offset_mapping = inputs["offset_mapping"][0].tolist()[1:-1]     # [CLS], [SEP]
         return tokens, offset_mapping
 
 
 class ProcessConvertLevel(ProcessBase):
 
-    def __init__(self, tokenizer, conversion, lang="en"):
+    def __init__(self, tokenizer, conversion, lang="zh"):
         self.tokenizer = tokenizer
         self.conversion = conversion
 
@@ -625,6 +626,13 @@ class ProcessConvertLevel(ProcessBase):
     
     def __call__(self, example):
         example = deepcopy(example)
+        is_flat = False
+        if example["entities"] is not None and \
+            not isinstance(example["entities"][0][0], Iterable):
+            is_flat = True
+        if is_flat:
+            example["entities"] = [[entity] for entity in example["entities"]]
+
         converted, entities = self.convert_func(
             example["text"], example["entities"])
         if "sent_start" in example and "sent_end" in example:
@@ -632,6 +640,10 @@ class ProcessConvertLevel(ProcessBase):
             sentence = [[(sent_start, sent_end, "_", example["text"][sent_start: sent_end])]]
             _, sentence = self.convert_func(example["text"], sentence)
             example["sent_start"], example["sent_end"] = sentence[0][0][:2]
+
+        if is_flat:
+            entities = [entity[0] for entity in entities]
+            
         example["text"] = converted
         example["entities"] = entities
         return example
@@ -1164,6 +1176,9 @@ class ProcessExample2Feature(ProcessBase):
         sent_start = example.get("sent_start", 0)
         sent_end = example.get("sent_end", len(tokens))
 
+        codec_tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"])[1:-1]
+        assert len(tokens) and all([t1 == t2 for t1, t2 in zip(tokens, codec_tokens)])
+
         # encode spans
         skip_indices = [idx for idx, token in enumerate(tokens) 
             if token in [
@@ -1208,13 +1223,13 @@ class ProcessExample2FeatureZh(ProcessExample2Feature):
         if stanza_nlp is not None:
             self.stanza_upos_unit2id = self.stanza_nlp.processors['pos'].vocab._vocabs['upos']._unit2id
 
-    def _encode_text(self, text: List[str]):
+    def _encode_text(self, tokens: List[str]):
         inputs = self.tokenizer(
-            text,
+            tokens,
             padding="max_length",
             truncation="longest_first",
             max_length=self.max_sequence_length,
-            is_split_into_words=True,
+            is_pre_tokenized=True,
             return_tensors="pt",
         )
         input_length = inputs["attention_mask"].sum().item() - 2
@@ -1266,6 +1281,9 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         # ]) if data_type == "train" else None,
         ProcessConvertLevel(tokenizer, "word2char") if data_class in [  # english
 
+        ] else None,
+        ProcessConvertLevel(tokenizer, "char2token") if data_class in [  # chinese
+            GaiicTrack2SpanClassificationDataset,
         ] else None,
         process_class(
             data_class.label2id(), tokenizer, max_sequence_length,
@@ -2416,7 +2434,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0_opts.json")
+    # sys.argv.append("outputs/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span20-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span20-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -2467,6 +2485,7 @@ def build_opts():
     # opts.context_size = 10
     # opts.max_span_length = 50
     # opts.train_max_seq_length = 512
+    # opts.max_train_examples = 100
     # opts.do_lstm = False
     # opts.device_id = 'cpu'
     # opts.do_eval = opts.do_predict = opts.do_check = False
@@ -2543,7 +2562,7 @@ def main(opts):
     stanza_nlp = None
     if opts.use_syntactic:
         import stanza
-        stanza_nlp = stanza.Pipeline(lang="en", processors="tokenize,mwt,pos,lemma,depparse", use_gpu=True)
+        stanza_nlp = stanza.Pipeline(lang="zh", processors="tokenize,mwt,pos,lemma,depparse", use_gpu=True)
         stanza_nlp.processors["tokenize"].config.update({"pretokenized": True})
     try:
         tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
@@ -2727,8 +2746,10 @@ def main(opts):
             #     for example in examples:
             #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
             # 保存为提交格式
+            token2char = ProcessConvertLevel(tokenizer, "token2char")
             with open(os.path.join(checkpoint, f"{opts.test_input_file}.predictions.txt"), "w") as f:
                 for example_no, example in enumerate(examples):
+                    example = token2char(deepcopy(example))
                     tokens = example["text"]
                     ner_tags = entities_to_ner_tags(len(example["text"]), example["entities"])
                     for token, tag in zip(tokens, ner_tags):
@@ -2740,13 +2761,13 @@ def main(opts):
         span_labels = []
         sequence_lengths = []
         span_lengths = []
-        metric = SequenceLabelingScoreEntity({label.split("-")[1] for label in \
-            data_class.get_labels() if label not in ["O", "II-O"]}, "micro", entity_type="all")
+        metric = SequenceLabelingScoreEntity({label for label in \
+            data_class.get_labels() if label not in ["O", ]}, "micro", entity_type="all")
         char2token = ProcessConvertLevel(tokenizer, "char2token")
         for example_no in tqdm(range(len(train_dataset)), total=len(train_dataset)):
 
             # print(example_no)
-            # if example_no not in [8, ]: continue
+            # if example_no not in [44, ]: continue
 
             example, feature = train_dataset.examples[example_no], train_dataset[example_no]
             span_labels.extend(feature["labels"].cpu().numpy().tolist())
@@ -2757,7 +2778,7 @@ def main(opts):
             # 真实标签
             for proc in train_dataset.process_piplines[:-1]:
                 if proc is None: continue
-                example = proc(example)                 # en: char level, zh: word level
+                example = proc(example)
             if isinstance(train_dataset.process_piplines[-1], ProcessExample2FeatureZh):
                 tokens = example["text"]
                 entities = example["entities"]
@@ -2773,30 +2794,29 @@ def main(opts):
                 opts.decode_thresh, opts.label2id, opts.id2label, is_logits=False)      # token level
             decodes = decodes[0]    # batch_size = 1
             # span长度统计(token level)
-            for span in decodes:
-                for start, end, *_ in span:
-                    span_lengths.append(end - start)
+            for start, end, *_ in decodes:
+                span_lengths.append(end - start)
             # token -> char
             example_codec = deepcopy(example)
             entities_codec = [
-                [(start, end, label, tokens[start: end]) for start, end, label in entity
-            ] for entity in decodes]
+                (start, end, label, tokens[start: end])
+                for start, end, label in decodes
+            ]
             example_codec["entities"] = entities_codec                                  # token level
             decodes = example_codec["entities"]
 
-            # sort_key = lambda x: (x[0][0], x[0][1] - x[0][0])   # 以每个实体第一个片段位置
-            sort_key = lambda xs: list(chain(*[(x[0], x[1]) for x in xs]))  # 以实体所有片段位置
+            sort_key = lambda x: x[:2]
             entities = sorted(entities, key=sort_key)
             decodes = sorted(decodes, key=sort_key)
             # 批次为1
-            predictions = [
-                [[(start, end, label) 
-                for start, end, label, _ in entity] for entity in decodes]
-            ]
-            groundtruths = [
-                [[(start - example["sent_start"], end - example["sent_start"], label) 
-                for start, end, label, _ in entity] for entity in entities]
-            ]
+            predictions = [[
+                (start, end, label) 
+                for start, end, label, _ in decodes
+            ]]
+            groundtruths = [[
+                (start - example["sent_start"], end - example["sent_start"], label)
+                for start, end, label, _ in entities
+            ]]
             metric.update(predictions, groundtruths)
         
         # 类别统计
