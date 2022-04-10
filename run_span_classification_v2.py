@@ -600,6 +600,9 @@ class LevelConvertorHuggingFaceZh(LevelConvertorHuggingFace):
         tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])[1:-1]
         offset_mapping = inputs["offset_mapping"][0].tolist()[1:-1]     # [CLS], [SEP]
         return tokens, offset_mapping
+    
+    def _forward(self, tokens):
+        return self.tokenizer.convert_tokens_to_string(tokens)
 
 
 class ProcessConvertLevel(ProcessBase):
@@ -2434,7 +2437,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span20-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span20-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv_opts.json")
+    # sys.argv.append("outputs/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span30-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span30-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -2482,6 +2485,7 @@ def build_opts():
     # opts.do_train = opts.do_eval = opts.do_predict = False
     # opts.do_eval = True
     # opts.do_check = True
+    # opts.do_predict = True
     # opts.context_size = 10
     # opts.max_span_length = 50
     # opts.train_max_seq_length = 512
@@ -2495,12 +2499,15 @@ def build_opts():
     
     return opts
 
-def update_example_entities(tokenizer, examples, entities, process):
+def update_example_entities(tokenizer, examples, entities, processes=[]):
     assert len(examples) == len(entities)
     updated = []
-    for example, entities in zip(examples, entities):
+    for example, entities in tqdm(zip(examples, entities), 
+            total=len(examples), desc="Updating examples..."):
         example = deepcopy(example)
-        if process is not None:
+        for process in processes:
+            if process is None:
+                continue
             example = process(example)
         if isinstance(example["text"], str):
             tokens = tokenizer.tokenize(example["text"])
@@ -2685,7 +2692,7 @@ def main(opts):
             results = load_pickle(os.path.join(checkpoint, f"dev_eval_results.pkl"))
 
             entities = list(chain(*[batch["groundtruths"] for batch in results]))
-            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
+            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[:-1])
             with open(os.path.join(checkpoint, "groundtruths.json"), "w") as f:
                 for example in examples:
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
@@ -2705,7 +2712,7 @@ def main(opts):
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
 
             entities = list(chain(*[batch["predictions"] for batch in results]))
-            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
+            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[:-1])
             with open(os.path.join(checkpoint, "evaluations.json"), "w") as f:
                 for example in examples:
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
@@ -2741,18 +2748,21 @@ def main(opts):
             # 保存为样本，用于分析
             results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
             entities = list(chain(*[batch["predictions"] for batch in results]))
-            examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[0])
+            examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[:-1])
             # with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
             #     for example in examples:
             #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
             # 保存为提交格式
             token2char = ProcessConvertLevel(tokenizer, "token2char")
-            with open(os.path.join(checkpoint, f"{opts.test_input_file}.predictions.txt"), "w") as f:
-                for example_no, example in enumerate(examples):
+            predicion_file = f"{opts.test_input_file}.predictions.txt"
+            with open(os.path.join(checkpoint, predicion_file), "w") as f:
+                for example_no, example in tqdm(enumerate(examples), total=len(examples), 
+                        desc=f"Writing to {predicion_file}"):
                     example = token2char(deepcopy(example))
-                    tokens = example["text"]
-                    ner_tags = entities_to_ner_tags(len(example["text"]), example["entities"])
-                    for token, tag in zip(tokens, ner_tags):
+                    text = test_dataset.examples[example_no]["text"]
+                    ner_tags = entities_to_ner_tags(len(text), example["entities"])
+                    assert len(text) == len(ner_tags)
+                    for token, tag in zip(text, ner_tags):
                         f.write(f"{token} {tag}\n")
                     f.write(f"\n")
 

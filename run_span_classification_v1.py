@@ -593,17 +593,19 @@ class LevelConvertorHuggingFace(LevelConvertorBase):
 class LevelConvertorHuggingFaceZh(LevelConvertorHuggingFace):
 
     def _convert(self, text):
-        tokens = [ch if ch in self.tokenizer.vocab else 
-            self.tokenizer.unk_token for ch in text]
-        inputs = self.tokenizer(tokens, is_split_into_words=True, return_tensors="np",)
+        inputs = self.tokenizer(text, is_split_into_words=True, 
+            return_offsets_mapping=True, return_tensors="np")
         tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])[1:-1]
-        offset_mapping = [[i, i + 1] for i, ch in enumerate(tokens)]
+        offset_mapping = inputs["offset_mapping"][0].tolist()[1:-1]     # [CLS], [SEP]
         return tokens, offset_mapping
+    
+    def _forward(self, tokens):
+        return self.tokenizer.convert_tokens_to_string(tokens)
 
 
 class ProcessConvertLevel(ProcessBase):
 
-    def __init__(self, tokenizer, conversion, lang="en"):
+    def __init__(self, tokenizer, conversion, lang="zh"):
         self.tokenizer = tokenizer
         self.conversion = conversion
 
@@ -625,6 +627,13 @@ class ProcessConvertLevel(ProcessBase):
     
     def __call__(self, example):
         example = deepcopy(example)
+        is_flat = False
+        if example["entities"] is not None and \
+            not isinstance(example["entities"][0][0], Iterable):
+            is_flat = True
+        if is_flat:
+            example["entities"] = [[entity] for entity in example["entities"]]
+
         converted, entities = self.convert_func(
             example["text"], example["entities"])
         if "sent_start" in example and "sent_end" in example:
@@ -632,6 +641,10 @@ class ProcessConvertLevel(ProcessBase):
             sentence = [[(sent_start, sent_end, "_", example["text"][sent_start: sent_end])]]
             _, sentence = self.convert_func(example["text"], sentence)
             example["sent_start"], example["sent_end"] = sentence[0][0][:2]
+
+        if is_flat:
+            entities = [entity[0] for entity in entities]
+            
         example["text"] = converted
         example["entities"] = entities
         return example
@@ -1163,6 +1176,9 @@ class ProcessExample2Feature(ProcessBase):
         tokens, entities = example["text"], example["entities"]
         sent_start = example.get("sent_start", 0)
         sent_end = example.get("sent_end", len(tokens))
+
+        # codec_tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"])[1:-1]
+        # assert len(tokens) and all([t1 == t2 for t1, t2 in zip(tokens, codec_tokens)])
 
         # encode spans
         skip_indices = [idx for idx, token in enumerate(tokens) 
@@ -2476,12 +2492,15 @@ def build_opts():
     
     return opts
 
-def update_example_entities(tokenizer, examples, entities, process):
+def update_example_entities(tokenizer, examples, entities, processes=[]):
     assert len(examples) == len(entities)
     updated = []
-    for example, entities in zip(examples, entities):
+    for example, entities in tqdm(zip(examples, entities), 
+            total=len(examples), desc="Updating examples..."):
         example = deepcopy(example)
-        if process is not None:
+        for process in processes:
+            if process is None:
+                continue
             example = process(example)
         if isinstance(example["text"], str):
             tokens = tokenizer.tokenize(example["text"])
@@ -2543,7 +2562,7 @@ def main(opts):
     stanza_nlp = None
     if opts.use_syntactic:
         import stanza
-        stanza_nlp = stanza.Pipeline(lang="en", processors="tokenize,mwt,pos,lemma,depparse", use_gpu=True)
+        stanza_nlp = stanza.Pipeline(lang="zh", processors="tokenize,mwt,pos,lemma,depparse", use_gpu=True)
         stanza_nlp.processors["tokenize"].config.update({"pretokenized": True})
     try:
         tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
@@ -2666,7 +2685,7 @@ def main(opts):
             results = load_pickle(os.path.join(checkpoint, f"dev_eval_results.pkl"))
 
             entities = list(chain(*[batch["groundtruths"] for batch in results]))
-            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
+            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[:-1])
             with open(os.path.join(checkpoint, "groundtruths.json"), "w") as f:
                 for example in examples:
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
@@ -2686,7 +2705,7 @@ def main(opts):
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
 
             entities = list(chain(*[batch["predictions"] for batch in results]))
-            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[0])
+            examples = update_example_entities(tokenizer, dev_dataset.examples, entities, dev_dataset.process_piplines[:-1])
             with open(os.path.join(checkpoint, "evaluations.json"), "w") as f:
                 for example in examples:
                     f.write(json.dumps(example, ensure_ascii=False) + "\n")
@@ -2722,20 +2741,25 @@ def main(opts):
             # 保存为样本，用于分析
             results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
             entities = list(chain(*[batch["predictions"] for batch in results]))
-            examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[0])
+            examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[:-1])
             # with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
             #     for example in examples:
             #         f.write(json.dumps(example, ensure_ascii=False) + "\n")
             # 保存为提交格式
-            with open(os.path.join(checkpoint, f"{opts.test_input_file}.predictions.txt"), "w") as f:
-                for example_no, example in enumerate(examples):
-                    tokens = example["text"]
-                    ner_tags = entities_to_ner_tags(len(example["text"]), example["entities"])
-                    for token, tag in zip(tokens, ner_tags):
+            predicion_file = f"{opts.test_input_file}.predictions.txt"
+            with open(os.path.join(checkpoint, predicion_file), "w") as f:
+                for example_no, example in tqdm(enumerate(examples), total=len(examples), 
+                        desc=f"Writing to {predicion_file}"):
+                    text = test_dataset.examples[example_no]["text"]
+                    ner_tags = entities_to_ner_tags(len(text), example["entities"])
+                    assert len(text) == len(ner_tags)
+                    for token, tag in zip(text, ner_tags):
                         f.write(f"{token} {tag}\n")
                     f.write(f"\n")
 
     if opts.do_check:
+        import pdb; pdb.set_trace() # TODO:
+
         # check dataset & decode function
         span_labels = []
         sequence_lengths = []

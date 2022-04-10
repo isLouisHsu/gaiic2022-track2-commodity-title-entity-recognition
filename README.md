@@ -11,7 +11,7 @@
    - 重写`_tokenize`、`_encode_plus`、`prepare_for_model`等函数，支持返回`offsets_mapping`；
    - 新增`is_pre_tokenized`分词参数，支持将已分词的序列输入分词器，`_batch_encode_plus`待实现；
 3. 修复`ProcessExample2Feature`中`skip_indices`，仅跳过对`cls`、`sep`、`pad`token；
-4. 微调，`nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span20-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv`，已进行数据校验，部分由于分词问题导致的实体存在偏差(F1=0.999686)，线上TODO:
+4. 微调，`nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span20-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv`，已进行数据校验，部分由于分词问题导致的实体存在偏差(F1=0.999686)，线上0.8134645317760053。
 
 TODO:
 1. cosine学习率
@@ -29,7 +29,7 @@ TODO:
 
 ### 2022/4/8
 1. 继续预训练100k步，`nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2`，最终MLM损失1.6174659729003906；
-2. `nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132536474956525；
+2. `nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8136793661222608；
 3. 完善半监督代码`run_span_classification_ssl.py`，实验效果不佳；
 4. BERT中文分词器`_clean_text`函数支持控制字符分词；
 5. huggingface上传`nezha-cn-wwm-base`及`nezha-cn-wwm-large`(private)。

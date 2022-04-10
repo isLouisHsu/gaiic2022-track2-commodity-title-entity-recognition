@@ -148,10 +148,15 @@ class WordpieceTokenizerZh(WordpieceTokenizer):
                 start = end
 
             if is_bad:
-                output_tokens.append(self.unk_token)
-                offset_end = offset_start + len(token)
-                offsets_mapping.append([offset_start, offset_end])
-                offset_start = offset_end
+                # output_tokens.append(self.unk_token)
+                # offset_end = offset_start + len(token)
+                # offsets_mapping.append([offset_start, offset_end])
+                # offset_start = offset_end
+                for ch in token:
+                    output_tokens.append(self.unk_token)
+                    offset_end = offset_start + len(ch)
+                    offsets_mapping.append([offset_start, offset_end])
+                    offset_start = offset_end
             else:
                 for sub_token in sub_tokens:
                     output_tokens.append(sub_token)
@@ -642,3 +647,12 @@ class BertTokenizerZh(BertTokenizer):
                 verbose=verbose,
                 **kwargs,
             )
+
+    def convert_tokens_to_string(self, tokens):
+        """Converts a sequence of tokens (string) in a single string."""
+        # out_string = " ".join(tokens).replace(" ##", "").strip()
+        out_string = "".join(tokens)
+        out_string = re.sub(re.escape(self.space_token), r" ", out_string)
+        out_string = re.sub(re.escape(self.unk_token), r" ", out_string)
+        out_string = re.sub(r"##", r"", out_string)
+        return out_string
