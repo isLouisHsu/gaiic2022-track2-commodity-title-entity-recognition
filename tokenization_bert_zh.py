@@ -1,4 +1,5 @@
 import re
+import jieba
 import logging
 from typing import *
 from transformers.models.bert.tokenization_bert import (
@@ -38,6 +39,7 @@ class BasicTokenizerZh(BasicTokenizer):
         self, 
         space_token="[unused1]", 
         do_lower_case=True, 
+        do_ref_tokenize=False,
         never_split=None, 
         tokenize_chinese_chars=True, 
         strip_accents=None,
@@ -49,6 +51,7 @@ class BasicTokenizerZh(BasicTokenizer):
             strip_accents=strip_accents
         )
         self.space_token = space_token
+        self.do_ref_tokenize = do_ref_tokenize
 
     def tokenize(self, text, never_split=None):
         """
@@ -70,10 +73,8 @@ class BasicTokenizerZh(BasicTokenizer):
         # and generally don't have any Chinese data in them (there are Chinese
         # characters in the vocabulary because Wikipedia does have some Chinese
         # words in the English Wikipedia.).
-        text = re.sub(r" ", self.space_token, text)
         if self.tokenize_chinese_chars:
             text = self._tokenize_chinese_chars(text)
-        text = re.sub(re.escape(self.space_token), " " + self.space_token + " ", text)
         orig_tokens = whitespace_tokenize(text)
         split_tokens = []
         for token in orig_tokens:
@@ -100,6 +101,40 @@ class BasicTokenizerZh(BasicTokenizer):
             else:
                 output.append(char)
         return "".join(output)
+
+    def _tokenize_chinese_chars(self, text):
+        """Adds whitespace around any CJK character."""
+        if not self.do_ref_tokenize:
+            output = []
+            for char in text:
+                if char == " ":
+                    output.append(" ")
+                    output.append(self.space_token)
+                    output.append(" ")
+                    continue
+                cp = ord(char)
+                if self._is_chinese_char(cp):
+                    output.append(" ")
+                    output.append(char)
+                    output.append(" ")
+                else:
+                    output.append(char)
+        else:
+            output = []
+            for word in self._cut_words(text):
+                if word == " ":
+                    output.append(" ")
+                    output.append(self.space_token)
+                    output.append(" ")
+                    continue
+                output.append(" ")
+                output.append(word)
+                output.append(" ")
+
+        return "".join(output)
+
+    def _cut_words(self, text):
+        return jieba.cut(text)  # TODO: jieba, ltp, hanlp, ...
 
 class WordpieceTokenizerZh(WordpieceTokenizer):
 
@@ -173,6 +208,7 @@ class BertTokenizerZh(BertTokenizer):
         self,
         vocab_file,
         do_lower_case=True,
+        do_ref_tokenize=False,
         never_split=None,
         unk_token="[UNK]",
         sep_token="[SEP]",
@@ -213,6 +249,7 @@ class BertTokenizerZh(BertTokenizer):
 
         self.basic_tokenizer = BasicTokenizerZh(
             do_lower_case=do_lower_case,
+            do_ref_tokenize=do_ref_tokenize,
             never_split=never_split,
             tokenize_chinese_chars=tokenize_chinese_chars,
             strip_accents=strip_accents,
@@ -369,7 +406,150 @@ class BertTokenizerZh(BertTokenizer):
         verbose: bool = True,
         **kwargs
     ) -> BatchEncoding:
-        raise NotImplementedError
+
+        no_split_token = set(self.unique_no_split_tokens)
+        def get_input_ids(text):
+            if isinstance(text, str):
+                tokens, offsets_mapping = self.tokenize(text, **kwargs)
+                return self.convert_tokens_to_ids(tokens), offsets_mapping
+            elif isinstance(text, (list, tuple)) and len(text) > 0 and isinstance(text[0], str):
+                if is_split_into_words:
+                    tokens = []
+                    offsets_mapping = []
+                    offset_start = 0
+                    for t in text:
+                        if t in no_split_token:
+                            tokens.append(t)
+                            offset_end = offset_start + 1
+                            offsets_mapping.append([offset_start, offset_end])
+                            offset_start = offset_end
+                        else:
+                            sub_tokens, sub_offsets_mapping = self.tokenize(
+                                t, is_split_into_words=True, **kwargs)
+                            for sub_token, (sub_start, sub_end) in zip(
+                                    sub_tokens, sub_offsets_mapping):
+                                tokens.append(sub_token)
+                                sub_start, sub_end = sub_start + offset_start, sub_end + offset_start
+                                offsets_mapping.append([sub_start, sub_end])
+                                offset_start = sub_end
+                    return self.convert_tokens_to_ids(tokens), offsets_mapping
+                elif is_pre_tokenized:
+                    return self.convert_tokens_to_ids(text), None
+                else:
+                    return self.convert_tokens_to_ids(text), None
+            elif isinstance(text, (list, tuple)) and len(text) > 0 and isinstance(text[0], int):
+                return text, None
+            else:
+                raise ValueError(
+                    "Input is not valid. Should be a string, a list/tuple of strings or a list/tuple of integers."
+                )
+
+        batch_ids_pairs = []
+        batch_offsets_mapping_pairs = []
+        for ids_or_pair_ids in batch_text_or_text_pairs:
+            if not isinstance(ids_or_pair_ids, (list, tuple)):
+                ids, pair_ids = ids_or_pair_ids, None
+            elif is_split_into_words and not isinstance(ids_or_pair_ids[0], (list, tuple)):
+                ids, pair_ids = ids_or_pair_ids, None
+            else:
+                ids, pair_ids = ids_or_pair_ids
+
+            first_ids, first_offsets_mapping = get_input_ids(ids)
+            second_ids, second_offsets_mapping = get_input_ids(pair_ids) if pair_ids is not None else None, None
+            batch_ids_pairs.append((first_ids, second_ids))
+            batch_offsets_mapping_pairs.append((first_offsets_mapping, second_offsets_mapping))
+
+        batch_outputs = self._batch_prepare_for_model(
+            batch_ids_pairs,
+            batch_offsets_mapping_pairs=batch_offsets_mapping_pairs,
+            add_special_tokens=add_special_tokens,
+            padding_strategy=padding_strategy,
+            truncation_strategy=truncation_strategy,
+            max_length=max_length,
+            stride=stride,
+            pad_to_multiple_of=pad_to_multiple_of,
+            return_attention_mask=return_attention_mask,
+            return_token_type_ids=return_token_type_ids,
+            return_overflowing_tokens=return_overflowing_tokens,
+            return_special_tokens_mask=return_special_tokens_mask,
+            return_offsets_mapping=return_offsets_mapping,
+            return_length=return_length,
+            return_tensors=return_tensors,
+            verbose=verbose,
+        )
+
+        return BatchEncoding(batch_outputs)
+
+    @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
+    def _batch_prepare_for_model(
+        self,
+        batch_ids_pairs: List[Union[PreTokenizedInputPair, Tuple[List[int], None]]],
+        batch_offsets_mapping_pairs: List = None,
+        add_special_tokens: bool = True,
+        padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
+        truncation_strategy: TruncationStrategy = TruncationStrategy.DO_NOT_TRUNCATE,
+        max_length: Optional[int] = None,
+        stride: int = 0,
+        pad_to_multiple_of: Optional[int] = None,
+        return_tensors: Optional[str] = None,
+        return_token_type_ids: Optional[bool] = None,
+        return_attention_mask: Optional[bool] = None,
+        return_overflowing_tokens: bool = False,
+        return_special_tokens_mask: bool = False,
+        return_offsets_mapping: bool = False,
+        return_length: bool = False,
+        verbose: bool = True,
+    ) -> BatchEncoding:
+        """
+        Prepares a sequence of input id, or a pair of sequences of inputs ids so that it can be used by the model. It
+        adds special tokens, truncates sequences if overflowing while taking into account the special tokens and
+        manages a moving window (with user defined stride) for overflowing tokens
+
+        Args:
+            batch_ids_pairs: list of tokenized input ids or input ids pairs
+        """
+
+        batch_outputs = {}
+        for (first_ids, second_ids), (first_offset_mapping, second_offset_mapping) in \
+                zip(batch_ids_pairs, batch_offsets_mapping_pairs):
+            outputs = self.prepare_for_model(
+                first_ids,
+                second_ids,
+                offsets_mapping=first_offset_mapping,
+                pair_offsets_mapping=second_offset_mapping,
+                add_special_tokens=add_special_tokens,
+                padding=PaddingStrategy.DO_NOT_PAD.value,  # we pad in batch afterward
+                truncation=truncation_strategy.value,
+                max_length=max_length,
+                stride=stride,
+                pad_to_multiple_of=None,  # we pad in batch afterward
+                return_attention_mask=False,  # we pad in batch afterward
+                return_token_type_ids=return_token_type_ids,
+                return_overflowing_tokens=return_overflowing_tokens,
+                return_special_tokens_mask=return_special_tokens_mask,
+                return_offsets_mapping=return_offsets_mapping,
+                return_length=return_length,
+                return_tensors=None,  # We convert the whole batch to tensors at the end
+                prepend_batch_axis=False,
+                verbose=verbose,
+            )
+
+            for key, value in outputs.items():
+                if key not in batch_outputs:
+                    batch_outputs[key] = []
+                batch_outputs[key].append(value)
+
+        batch_outputs = self.pad(
+            batch_outputs,
+            padding=padding_strategy.value,
+            max_length=max_length,
+            pad_to_multiple_of=pad_to_multiple_of,
+            return_attention_mask=return_attention_mask,
+        )
+
+        batch_outputs = BatchEncoding(batch_outputs, tensor_type=return_tensors)
+
+        return batch_outputs
 
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def prepare_for_model(

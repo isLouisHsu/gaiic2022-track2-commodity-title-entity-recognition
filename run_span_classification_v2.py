@@ -2,7 +2,6 @@ import os
 import re
 import sys
 import json
-from tkinter.tix import Tree
 import yaml
 import math
 import random
@@ -1179,8 +1178,8 @@ class ProcessExample2Feature(ProcessBase):
         sent_start = example.get("sent_start", 0)
         sent_end = example.get("sent_end", len(tokens))
 
-        codec_tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"])[1:-1]
-        assert len(tokens) and all([t1 == t2 for t1, t2 in zip(tokens, codec_tokens)])
+        # codec_tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"])[1:-1]
+        # assert len(tokens) and all([t1 == t2 for t1, t2 in zip(tokens, codec_tokens)])
 
         # encode spans
         skip_indices = [idx for idx, token in enumerate(tokens) 

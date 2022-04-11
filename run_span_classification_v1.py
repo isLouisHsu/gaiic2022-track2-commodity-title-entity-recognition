@@ -2,7 +2,6 @@ import os
 import re
 import sys
 import json
-from tkinter.tix import Tree
 import yaml
 import math
 import random

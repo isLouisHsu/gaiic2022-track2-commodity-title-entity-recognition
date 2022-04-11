@@ -101,6 +101,12 @@ class ModelArguments:
             "with private models)."
         },
     )
+    do_ref_tokenize: bool = field(
+        default=False,
+        metadata={
+            "help": "For `~tokenization_bert_zh.BertTokenizerZh`"
+        },
+    )
 
 
 @dataclass
@@ -290,6 +296,7 @@ def main():
         "use_fast": model_args.use_fast_tokenizer,
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
+        "do_ref_tokenize": model_args.do_ref_tokenize,
     }
     if model_args.tokenizer_name:
         tokenizer = tokenizer_class.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)

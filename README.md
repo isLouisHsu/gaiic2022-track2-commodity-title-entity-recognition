@@ -4,6 +4,15 @@
 
 ## 更新
 
+### 2022/4/11
+1. 完善`~tokenization_bert_zh.BertTokenizerZh`：
+   - 新增`do_ref_tokenize`参数，并重写`_tokenize_chinese_chars`，可实现带词汇信息的中文分词（基于`jieba`）；
+   - 重写`_batch_encode_plus`与`_batch_prepare_for_model`，支持批量分词（在`run_mlm_wwm.py`中需要）；
+2. 带词汇信息的预训练：
+   - 新增`extend_chinese_ref_embeddings.py`，新增`##X`并初始化对应词向量（复制`X`的词向量）；
+   - `run_mlm_wwm.py`新增`do_ref_tokenize`配置项，可进行带词汇信息的中文预训练；
+   - `nezha-cn-base-wwm-word-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2`
+
 ### 2022/4/10
 1. 以wordpiece级别进行下游任务微调（之前为char级别），因为预训练截断以wordpiece粒度进行，`run_span_classification_v2`；
 2. 为支持wordpeice级别，完善`BasicTokenizerZh`，具体：
