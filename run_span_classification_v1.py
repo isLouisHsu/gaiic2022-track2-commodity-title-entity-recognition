@@ -2478,9 +2478,11 @@ def build_opts():
     # opts.do_train = opts.do_eval = opts.do_predict = False
     # opts.do_eval = True
     # opts.do_check = True
+    # opts.do_predict = True
     # opts.context_size = 10
     # opts.max_span_length = 50
     # opts.train_max_seq_length = 512
+    # opts.max_train_examples = 100
     # opts.do_lstm = False
     # opts.device_id = 'cpu'
     # opts.do_eval = opts.do_predict = opts.do_check = False
@@ -2756,19 +2758,17 @@ def main(opts):
                     f.write(f"\n")
 
     if opts.do_check:
-        import pdb; pdb.set_trace() # TODO:
-
         # check dataset & decode function
         span_labels = []
         sequence_lengths = []
         span_lengths = []
-        metric = SequenceLabelingScoreEntity({label.split("-")[1] for label in \
-            data_class.get_labels() if label not in ["O", "II-O"]}, "micro", entity_type="all")
+        metric = SequenceLabelingScoreEntity({label for label in \
+            data_class.get_labels() if label not in ["O", ]}, "micro", entity_type="all")
         char2token = ProcessConvertLevel(tokenizer, "char2token")
         for example_no in tqdm(range(len(train_dataset)), total=len(train_dataset)):
 
             # print(example_no)
-            # if example_no not in [8, ]: continue
+            # if example_no not in [44, ]: continue
 
             example, feature = train_dataset.examples[example_no], train_dataset[example_no]
             span_labels.extend(feature["labels"].cpu().numpy().tolist())
@@ -2779,7 +2779,7 @@ def main(opts):
             # 真实标签
             for proc in train_dataset.process_piplines[:-1]:
                 if proc is None: continue
-                example = proc(example)                 # en: char level, zh: word level
+                example = proc(example)
             if isinstance(train_dataset.process_piplines[-1], ProcessExample2FeatureZh):
                 tokens = example["text"]
                 entities = example["entities"]
@@ -2795,30 +2795,29 @@ def main(opts):
                 opts.decode_thresh, opts.label2id, opts.id2label, is_logits=False)      # token level
             decodes = decodes[0]    # batch_size = 1
             # span长度统计(token level)
-            for span in decodes:
-                for start, end, *_ in span:
-                    span_lengths.append(end - start)
+            for start, end, *_ in decodes:
+                span_lengths.append(end - start)
             # token -> char
             example_codec = deepcopy(example)
             entities_codec = [
-                [(start, end, label, tokens[start: end]) for start, end, label in entity
-            ] for entity in decodes]
+                (start, end, label, tokens[start: end])
+                for start, end, label in decodes
+            ]
             example_codec["entities"] = entities_codec                                  # token level
             decodes = example_codec["entities"]
 
-            # sort_key = lambda x: (x[0][0], x[0][1] - x[0][0])   # 以每个实体第一个片段位置
-            sort_key = lambda xs: list(chain(*[(x[0], x[1]) for x in xs]))  # 以实体所有片段位置
+            sort_key = lambda x: x[:2]
             entities = sorted(entities, key=sort_key)
             decodes = sorted(decodes, key=sort_key)
             # 批次为1
-            predictions = [
-                [[(start, end, label) 
-                for start, end, label, _ in entity] for entity in decodes]
-            ]
-            groundtruths = [
-                [[(start - example["sent_start"], end - example["sent_start"], label) 
-                for start, end, label, _ in entity] for entity in entities]
-            ]
+            predictions = [[
+                (start, end, label) 
+                for start, end, label, _ in decodes
+            ]]
+            groundtruths = [[
+                (start - example["sent_start"], end - example["sent_start"], label)
+                for start, end, label, _ in entities
+            ]]
             metric.update(predictions, groundtruths)
         
         # 类别统计

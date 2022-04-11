@@ -1576,3 +1576,111 @@ python run_span_classification_v2.py \
     --do_rdrop \
     --rdrop_weight=0.3 \
     --seed=42
+
+# 线上0.8112401066614894
+python run_span_classification_v2.py \
+    --experiment_code=nezha-100k-spanv2-datav3-lr2e-5-wd0.01-cos-dp0.1-span35-e6-bs16x2-fgm0.5-rdrop0.5-lstmx1-last4mean-tklv \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v3/ \
+    --train_input_file=train.all.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_train --do_predict \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=2e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.1 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable --adv_epsilon=0.5 \
+    --do_rdrop --rdrop_weight=0.5 \
+    --scheduler_type=cosine \
+    --use_last_n_layers=4 --agg_last_n_layers=mean \
+    --do_lstm --num_lstm_layers=1 \
+    --seed=42
+
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v3/ \
+    --train_input_file=train.all.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_check \
+    --train_max_seq_length=512 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=50 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable \
+    --adv_epsilon=1.0 \
+    --do_rdrop \
+    --rdrop_weight=0.3 \
+    --seed=42
+# 2022-04-11 23:57:58 - INFO - root - {'O': 63452070, '40': 32470, '4': 167271, '14': 22363, '5': 40536, '7': 24890, '11': 60291, '13': 64702, '8': 18280, '16': 22924, '29': 4333, '9': 12917, '12': 12218, '18': 54487, '1': 25043, '3': 9097, '22': 9331, '37': 15134, '39': 4968, '10': 8209, '36': 3627, '34': 260, '31': 850, '38': 30750, '54': 6001, '6': 1511, '30': 540, '15': 810, '2': 3037, '49': 1384, '21': 605, '47': 1343, '23': 22, '20': 571, '50': 389, '46': 26, '41': 495, '43': 88, '48': 167, '19': 132, '52': 174, '33': 14, '28': 34, '32': 47, '44': 36, '25': 29, '17': 31, '42': 11, '24': 5, '53': 5, '26': 1, '35': 3, '51': 16}
+# 2022-04-11 23:57:58 - INFO - root - [(9, 1), (10, 3), (11, 3), (14, 4), (15, 4), (16, 5), (17, 14), (18, 13), (19, 7), (20, 10), (21, 11), (22, 14), (23, 5), (24, 18), (25, 23), (26, 38), (27, 35), (28, 48), (29, 52), (30, 93), (31, 105), (32, 154), (33, 190), (34, 219), (35, 307), (36, 386), (37, 424), (38, 455), (39, 556), (40, 587), (41, 647), (42, 704), (43, 707), (44, 802), (45, 839), (46, 846), (47, 905), (48, 922), (49, 959), (50, 993), (51, 1034), (52, 1024), (53, 997), (54, 967), (55, 1066), (56, 1040), (57, 1010), (58, 1080), (59, 1132), (60, 1107), (61, 1153), (62, 1177), (63, 1113), (64, 1045), (65, 1088), (66, 1046), (67, 964), (68, 891), (69, 794), (70, 744), (71, 746), (72, 708), (73, 649), (74, 602), (75, 616), (76, 591), (77, 558), (78, 590), (79, 259), (80, 243), (81, 202), (82, 176), (83, 177), (84, 140), (85, 134), (86, 116), (87, 107), (88, 127), (89, 113), (90, 82), (91, 72), (92, 72), (93, 45), (94, 56), (95, 38), (96, 34), (97, 38), (98, 32), (99, 25), (100, 27), (101, 14), (102, 27), (103, 4)]
+# 2022-04-11 23:57:58 - INFO - root - [(1, 5449), (2, 342774), (3, 189357), (4, 61138), (5, 25286), (6, 16059), (7, 8078), (8, 4708), (9, 3399), (10, 1656), (11, 1526), (12, 719), (13, 814), (14, 394), (15, 275), (16, 211), (17, 171), (18, 115), (19, 72), (20, 60), (21, 54), (22, 36), (23, 32), (24, 23), (25, 15), (26, 10), (27, 10), (28, 7), (29, 14), (30, 5), (31, 1), (32, 1), (33, 3), (35, 3), (36, 1), (38, 1), (39, 1)]
+
+python prepare_data.py \
+    --version=v4 \
+    --labeled_files \
+        data/raw/train_data/train.txt \
+    --test_files \
+        data/raw/preliminary_test_a/word_per_line_preliminary_A.txt \
+    --output_dir=data/processed/ \
+    --n_splits=10 \
+    --seed=42
+# split=0, #train=36000, #dev=4000
+# split=1, #train=36000, #dev=4000
+# split=2, #train=36000, #dev=4000
+# split=3, #train=36000, #dev=4000
+# split=4, #train=36000, #dev=4000
+# split=5, #train=36000, #dev=4000
+# split=6, #train=36000, #dev=4000
+# split=7, #train=36000, #dev=4000
+# split=8, #train=36000, #dev=4000
+# split=9, #train=36000, #dev=4000
+# test file: data/raw/preliminary_test_a/word_per_line_preliminary_A.txt, #test=10000
