@@ -627,8 +627,7 @@ class ProcessConvertLevel(ProcessBase):
     def __call__(self, example):
         example = deepcopy(example)
         is_flat = False
-        if example["entities"] is not None and \
-            not isinstance(example["entities"][0][0], Iterable):
+        if example["entities"] and not isinstance(example["entities"][0][0], Iterable):
             is_flat = True
         if is_flat:
             example["entities"] = [[entity] for entity in example["entities"]]

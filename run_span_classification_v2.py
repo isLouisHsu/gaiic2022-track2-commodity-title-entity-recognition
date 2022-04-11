@@ -629,8 +629,7 @@ class ProcessConvertLevel(ProcessBase):
     def __call__(self, example):
         example = deepcopy(example)
         is_flat = False
-        if example["entities"] is not None and \
-            not isinstance(example["entities"][0][0], Iterable):
+        if example["entities"] and not isinstance(example["entities"][0][0], Iterable):
             is_flat = True
         if is_flat:
             example["entities"] = [[entity] for entity in example["entities"]]
@@ -2436,7 +2435,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span30-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv/gaiic_nezha_nezha-100k-spanv2-datav3-lr3e-5-wd0.01-dropout0.3-span30-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-tklv_opts.json")
+    # sys.argv.append("/home/louishsu/NewDisk/Code/gaiic2022-track2-commodity-title-entity-recognition/outputs/gaiic_nezha_nezha-100k-spanv2-datav3-lr2e-5-wd0.01-cos-dp0.1-span35-e6-bs16x2-fgm0.5-rdrop0.5-lstmx1-last4mean-tklv/gaiic_nezha_nezha-100k-spanv2-datav3-lr2e-5-wd0.01-cos-dp0.1-span35-e6-bs16x2-fgm0.5-rdrop0.5-lstmx1-last4mean-tklv_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,

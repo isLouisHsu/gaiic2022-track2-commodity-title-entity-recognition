@@ -11,7 +11,8 @@
 2. 带词汇信息的预训练：
    - 新增`extend_chinese_ref_embeddings.py`，新增`##X`并初始化对应词向量（复制`X`的词向量）；
    - `run_mlm_wwm.py`新增`do_ref_tokenize`配置项，可进行带词汇信息的中文预训练；
-   - `nezha-cn-base-wwm-word-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2`
+   - `nezha-cn-base-wwm-word-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2`；
+3. 微调，`nezha-100k-spanv2-datav3-lr2e-5-wd0.01-cos-dp0.1-span35-e6-bs16x2-fgm0.5-rdrop0.5-lstmx1-last4mean-tklv`，线上0.8112401066614894。
 
 ### 2022/4/10
 1. 以wordpiece级别进行下游任务微调（之前为char级别），因为预训练截断以wordpiece粒度进行，`run_span_classification_v2`；
