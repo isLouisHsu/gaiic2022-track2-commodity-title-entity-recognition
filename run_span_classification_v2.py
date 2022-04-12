@@ -594,8 +594,14 @@ class LevelConvertorHuggingFace(LevelConvertorBase):
 class LevelConvertorHuggingFaceZh(LevelConvertorHuggingFace):
 
     def _convert(self, text):
-        inputs = self.tokenizer(text, is_split_into_words=True, 
-            return_offsets_mapping=True, return_tensors="np")
+        import pdb; pdb.set_trace() # TODO:
+        inputs = self.tokenizer(
+            text, 
+            # is_split_into_words=True, 
+            # is_pre_tokenized=True,
+            return_offsets_mapping=True, 
+            return_tensors="np"
+        )
         tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])[1:-1]
         offset_mapping = inputs["offset_mapping"][0].tolist()[1:-1]     # [CLS], [SEP]
         return tokens, offset_mapping
@@ -2445,6 +2451,7 @@ def build_opts():
         parser = Argparser.get_training_parser()
         group = parser.add_argument_group(title="user-defined", description="user-defined")
         group.add_argument("--do_check", action="store_true")
+        group.add_argument("--do_ref_tokenize", action="store_true")
         group.add_argument("--labels", nargs="+", type=str, default=None)
         group.add_argument("--max_train_examples", type=int, default=None)
         group.add_argument("--max_eval_examples", type=int, default=None)
@@ -2569,11 +2576,15 @@ def main(opts):
         import stanza
         stanza_nlp = stanza.Pipeline(lang="zh", processors="tokenize,mwt,pos,lemma,depparse", use_gpu=True)
         stanza_nlp.processors["tokenize"].config.update({"pretokenized": True})
+    tokenizer_kwargs = {
+        "do_lower_case": opts.do_lower_case,
+        "do_ref_tokenize": opts.do_ref_tokenize,
+    }
     try:
-        tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
+        tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, **tokenizer_kwargs)
     except AssertionError:
         # XXX: AssertionError: Config has to be initialized with question_encoder and generator config
-        tokenizer = tokenizer_class.from_pretrained(os.path.join(opts.pretrained_model_path, "vocab.txt"), do_lower_case=opts.do_lower_case)
+        tokenizer = tokenizer_class.from_pretrained(os.path.join(opts.pretrained_model_path, "vocab.txt"), **tokenizer_kwargs)
     train_dataset = dev_dataset = test_dataset = None
     if opts.do_train or opts.do_check:
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
