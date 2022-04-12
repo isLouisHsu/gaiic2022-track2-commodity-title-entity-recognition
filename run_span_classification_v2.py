@@ -594,7 +594,6 @@ class LevelConvertorHuggingFace(LevelConvertorBase):
 class LevelConvertorHuggingFaceZh(LevelConvertorHuggingFace):
 
     def _convert(self, text):
-        import pdb; pdb.set_trace() # TODO:
         inputs = self.tokenizer(
             text, 
             # is_split_into_words=True, 

@@ -4,6 +4,7 @@ import sys
 import json
 import yaml
 import math
+import jieba
 import random
 import argparse
 import numpy as np
@@ -59,6 +60,7 @@ from torchblocks.utils.paths import find_all_checkpoints
 from torchblocks.utils.seed import seed_everything
 from tokenization_bert_zh import BertTokenizerZh
 from utils import get_spans_bio, check_example, get_synonym
+from run_chinese_ref import is_chinese
 
 IGNORE_INDEX = -100
 Span = NewType("Span", Tuple[int, int, str])
@@ -592,7 +594,6 @@ class LevelConvertorHuggingFace(LevelConvertorBase):
 class LevelConvertorHuggingFaceZh(LevelConvertorHuggingFace):
 
     def _convert(self, text):
-        import pdb; pdb.set_trace() # TODO:
         inputs = self.tokenizer(
             text, 
             # is_split_into_words=True, 
@@ -1229,6 +1230,16 @@ class ProcessExample2FeatureZh(ProcessExample2Feature):
             self.stanza_upos_unit2id = self.stanza_nlp.processors['pos'].vocab._vocabs['upos']._unit2id
 
     def _encode_text(self, text: List[str]):
+        num_chars = len(text)
+        if getattr(self.tokenizer, "do_ref_tokenize"):
+            text = "".join(text)
+            words = []
+            for word in jieba.cut(text):
+                if is_chinese(word):
+                    words.append(word)
+                else:
+                    words.extend(list(word))
+            text = words
         inputs = self.tokenizer(
             text,
             padding="max_length",
@@ -1244,6 +1255,10 @@ class ProcessExample2FeatureZh(ProcessExample2Feature):
             [(i, i + 1) for i in range(input_length)] + \
             [(0, 0) for i in range(pad_length)]
         ])
+        if getattr(self.tokenizer, "do_ref_tokenize"):
+            tokens = self.tokenizer.convert_ids_to_tokens(
+                inputs["input_ids"][0])[1: 1 + input_length]
+            assert len(tokens) == num_chars
         return inputs
 
 
@@ -2436,7 +2451,7 @@ DATA_CLASSES = {
 
 
 def build_opts():
-    # sys.argv.append("outputs/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0/gaiic_nezha_nezha-cn-base-spanv1-datav2-lr5e-5-wd0.01-dropout0.1-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0_opts.json")
+    # sys.argv.append("outputs/gaiic_nezha_nezha-ref-154k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3/gaiic_nezha_nezha-ref-154k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3_opts.json")
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
