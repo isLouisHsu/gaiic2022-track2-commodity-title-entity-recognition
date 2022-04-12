@@ -21,13 +21,16 @@ https://huggingface.co/models?filter=masked-lm
 """
 # You can also adapt this script on your own masked language modeling task. Pointers for this are left as comments.
 
-import json
-import logging
-import math
 import os
 import sys
+import json
+import math
+import jieba
+import logging
+import warnings
+from typing import *
+import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional
 
 from datasets import Dataset, load_dataset
 
@@ -38,26 +41,222 @@ from transformers import (
     AutoConfig,
     AutoModelForMaskedLM,
     AutoTokenizer,
+    DataCollatorForLanguageModeling,
     DataCollatorForWholeWordMask,
     HfArgumentParser,
     Trainer,
     TrainingArguments,
     set_seed,
 )
-from transformers.trainer_utils import get_last_checkpoint, is_main_process
+from transformers.trainer_utils import (
+    get_last_checkpoint, 
+    is_main_process,
+)
+from transformers.tokenization_utils_base import BatchEncoding
+from transformers.data.data_collator import (
+    _torch_collate_batch,
+    tolist,
+)
 
-from transformers import BertConfig, BertTokenizer
+from transformers import BertConfig, BertTokenizer, BertTokenizerFast
 from nezha.modeling_nezha import NeZhaForMaskedLM
 from tokenization_bert_zh import BertTokenizerZh
+from run_chinese_ref import is_chinese
 
 logger = logging.getLogger(__name__)
-MODEL_CONFIG_CLASSES = list(MODEL_FOR_MASKED_LM_MAPPING.keys())
-MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
-
+# MODEL_CONFIG_CLASSES = list(MODEL_FOR_MASKED_LM_MAPPING.keys())
+# MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 MODEL_CLASSES = {
     "default": (AutoConfig, AutoModelForMaskedLM, AutoTokenizer),
     "nezha": (BertConfig, NeZhaForMaskedLM, BertTokenizerZh),
 }
+MODEL_TYPES = tuple(MODEL_CLASSES.keys())
+
+
+@dataclass
+class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
+    """
+    Data collator used for language modeling that masks entire words.
+
+    - collates batches of tensors, honoring their tokenizer's pad_token
+    - preprocesses batches for masked language modeling
+
+    .. note::
+
+        This collator relies on details of the implementation of subword tokenization by
+        :class:`~transformers.BertTokenizer`, specifically that subword tokens are prefixed with `##`. For tokenizers
+        that do not adhere to this scheme, this collator will produce an output that is roughly equivalent to
+        :class:`.DataCollatorForLanguageModeling`.
+    """
+    max_ngram: int = 1
+    mlm_as_correction: bool = False
+
+    def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
+        if isinstance(examples[0], (dict, BatchEncoding)):
+            input_ids = [e["input_ids"] for e in examples]
+        else:
+            input_ids = examples
+            examples = [{"input_ids": e} for e in examples]
+        batch_input = _torch_collate_batch(input_ids, self.tokenizer, pad_to_multiple_of=self.pad_to_multiple_of)
+
+        batch_synonyms = None
+        if self.mlm_as_correction:
+            batch_synonyms = []
+            for input_ids in batch_input:
+                synonym_ids = input_ids.clone()
+                # special_tokens_mask = self.tokenizer.get_special_tokens_mask(synonym_ids)
+                tokens = self.tokenizer.convert_ids_to_tokens(synonym_ids)
+                string = self.tokenizer.convert_tokens_to_string(tokens[1:-1])
+                synonyms = [self._synonym(word) for word in jieba.cut(string)]
+                synonym_ids = self.tokenizer("".join(synonyms))
+                assert len(synonym_ids) == len(input_ids)
+                batch_synonyms.append(synonym_ids)
+
+        mask_labels = []
+        for e in examples:
+            ref_tokens = []
+            for id in tolist(e["input_ids"]):
+                token = self.tokenizer._convert_id_to_token(id)
+                ref_tokens.append(token)
+
+            # For Chinese tokens, we need extra inf to mark sub-word, e.g [喜,欢]-> [喜，##欢]
+            if (not getattr(self.tokenizer, "do_ref_tokenize", False)) and ("chinese_ref" in e):
+                ref_pos = tolist(e["chinese_ref"])
+                len_seq = len(e["input_ids"])
+                for i in range(len_seq):
+                    if i in ref_pos:
+                        ref_tokens[i] = "##" + ref_tokens[i]
+            mask_labels.append(self._whole_word_mask(ref_tokens))
+        batch_mask = _torch_collate_batch(mask_labels, self.tokenizer, pad_to_multiple_of=self.pad_to_multiple_of)
+        inputs, labels = self.torch_mask_tokens(batch_input, batch_mask, batch_synonyms)
+        return {"input_ids": inputs, "labels": labels}
+
+    def torch_mask_tokens(self, inputs: Any, mask_labels: Any, candidates: Any = None) -> Tuple[Any, Any]:
+        """
+        Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original. Set
+        'mask_labels' means we use whole word mask (wwm), we directly mask idxs according to it's ref.
+        """
+        import torch
+
+        if self.tokenizer.mask_token is None:
+            raise ValueError(
+                "This tokenizer does not have a mask token which is necessary for masked language modeling. Remove the --mlm flag if you want to use this tokenizer."
+            )
+        labels = inputs.clone()
+        # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
+
+        probability_matrix = mask_labels
+
+        special_tokens_mask = [
+            self.tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()
+        ]
+        probability_matrix.masked_fill_(torch.tensor(special_tokens_mask, dtype=torch.bool), value=0.0)
+        if self.tokenizer._pad_token is not None:
+            padding_mask = labels.eq(self.tokenizer.pad_token_id)
+            probability_matrix.masked_fill_(padding_mask, value=0.0)
+
+        masked_indices = probability_matrix.bool()
+        labels[~masked_indices] = -100  # We only compute loss on masked tokens
+
+        # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
+        indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+        if candidates is not None:
+            inputs[indices_replaced] = candidates[indices_replaced]    # for MacBERT
+        else:
+            inputs[indices_replaced] = self.tokenizer.convert_tokens_to_ids(self.tokenizer.mask_token)
+
+        # 10% of the time, we replace masked input tokens with random word
+        indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
+        random_words = torch.randint(len(self.tokenizer), labels.shape, dtype=torch.long)
+        inputs[indices_random] = random_words[indices_random]
+
+        # The rest of the time (10% of the time) we keep the masked input tokens unchanged
+        return inputs, labels
+
+    def _whole_word_mask(self, input_tokens: List[str], max_predictions=512):
+        """
+        Get 0/1 labels for masked tokens with whole word mask proxy
+        """
+        if not isinstance(self.tokenizer, (BertTokenizer, BertTokenizerFast)):
+            warnings.warn(
+                "DataCollatorForNGramWholeWordMask is only suitable for BertTokenizer-like tokenizers."
+                "Please refer to the documentation for more information."
+            )
+
+        cand_indexes = []
+        for (i, token) in enumerate(input_tokens):
+            if token == "[CLS]" or token == "[SEP]":
+                continue
+
+            if len(cand_indexes) >= 1 and token.startswith("##"):
+                cand_indexes[-1].append(i)
+            else:
+                cand_indexes.append([i])
+
+        # prepare
+        ngrams = np.arange(1, self.max_ngram + 1, dtype=np.int64)
+        pvals = 1. / np.arange(1, self.max_ngram + 1)   # SpanBERT
+        # pvals = np.arange(self.max_ngram, 0, -1) * 1.   # MacBERT
+        pvals /= pvals.sum(keepdims=True)
+        cand_ngram_indexes = []
+        for idx in range(len(cand_indexes)):
+            ngram_index = []
+            for n in ngrams:
+                ngram_index.append(cand_indexes[idx:idx + n])
+            cand_ngram_indexes.append(ngram_index)
+        np.random.shuffle(cand_ngram_indexes)
+
+        num_to_predict = min(max_predictions, max(1, int(round(len(input_tokens) * self.mlm_probability))))
+        masked_lms = []
+        covered_indexes = set()
+        for ngram_index_set in cand_ngram_indexes:
+            if len(masked_lms) >= num_to_predict:
+                break
+            # Choose ngram to mask
+            if not ngram_index_set:
+                continue
+            for index_set in ngram_index_set[0]:
+                for index in index_set:
+                    if index in covered_indexes:
+                        continue
+            n = np.random.choice(
+                ngrams[: len(ngram_index_set)],
+                p=pvals[: len(ngram_index_set)] / \
+                  pvals[: len(ngram_index_set)].sum(keepdims=True)
+            )
+            index_set = sum(ngram_index_set[n - 1], [])
+            n -= 1
+            while len(covered_indexes) + len(index_set) > num_to_predict:
+                if n == 0:
+                    break
+                index_set = sum(ngram_index_set[n - 1], [])
+                n -= 1
+            # If adding a whole-word mask would exceed the maximum number of
+            # predictions, then just skip this candidate.
+            if len(masked_lms) + len(index_set) > num_to_predict:
+                continue
+            is_any_index_covered = False
+            for index in index_set:
+                if index in covered_indexes:
+                    is_any_index_covered = True
+                    break
+            if is_any_index_covered:
+                continue
+            for index in index_set:
+                covered_indexes.add(index)
+                masked_lms.append(index)
+
+        assert len(covered_indexes) == len(masked_lms)
+        mask_labels = [1 if i in covered_indexes else 0 for i in range(len(input_tokens))]
+        return mask_labels
+
+    def _synonym(self, word):
+        if not is_chinese(word):
+            return word
+        raise NotImplementedError
+        synonym = word  # TODO:
+        assert len(synonym) == len(word)
+        return synonym
 
 @dataclass
 class ModelArguments:
@@ -156,6 +355,13 @@ class DataTrainingArguments:
     )
     mlm_probability: float = field(
         default=0.15, metadata={"help": "Ratio of tokens to mask for masked language modeling loss"}
+    )
+    max_ngram: int = field(
+        default=1, metadata={"help": "For n-gram mask."}
+    )
+    mlm_as_correction: bool = field(
+        default=False, 
+        metadata={"help": "For MacBERT"}
     )
     pad_to_max_length: bool = field(
         default=False,
@@ -353,7 +559,9 @@ def main():
 
     # Add the chinese references if provided
     if data_args.train_ref_file is not None:
-        tokenized_datasets["train"] = add_chinese_references(tokenized_datasets["train"], data_args.train_ref_file)
+        tokenized_datasets["train"] = add_chinese_references(
+            tokenized_datasets["train"], data_args.train_ref_file
+        )
     if data_args.validation_ref_file is not None:
         tokenized_datasets["validation"] = add_chinese_references(
             tokenized_datasets["validation"], data_args.validation_ref_file
@@ -365,7 +573,16 @@ def main():
 
     # Data collator
     # This one will take care of randomly masking the tokens.
-    data_collator = DataCollatorForWholeWordMask(tokenizer=tokenizer, mlm_probability=data_args.mlm_probability)
+    # data_collator = DataCollatorForWholeWordMask(
+    #     tokenizer=tokenizer, 
+    #     mlm_probability=data_args.mlm_probability,
+    # )
+    data_collator = DataCollatorForNGramWholeWordMask(
+        tokenizer=tokenizer, 
+        mlm_probability=data_args.mlm_probability,
+        max_ngram=data_args.max_ngram,
+        mlm_as_correction=data_args.mlm_as_correction,
+    )
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -427,3 +644,74 @@ def _mp_fn(index):
 
 if __name__ == "__main__":
     main()
+
+# if __name__ == "__main__":
+#     import os
+#     from run_chinese_ref import prepare_ref
+#     from tokenization_bert_zh import BertTokenizerZh
+
+#     corpus = \
+#         """
+#         OPPO闪充充电器 X9070 X9077 R5 快充头通用手机数据线 套餐【2.4充电头+数据线 】 安卓 1.5m
+#         OWIN净水器家用厨房欧恩科技反渗透纯水机O-50CSC
+#         教学教具磁条贴磁性条背胶(3M)软磁条 黑板软磁铁贴吸铁石磁贴片 宽50x厚1.5mm 1件=2米
+#         【限时促销】笔记本文具创意复古古风本子线装记事本学生小清新彩页日记本 寒江吟
+#         20本装a5笔记本子文具学生B5软抄本子记事本日记本软面抄批发简约加厚商务工作大学生笔记本办公用品手 大号B5-80张【10本装】随机颜色
+#         小米黑鲨2代钢化膜2pro电竞游戏专用二代手机保护膜全屏磨砂贴膜3代por黑沙2p防指纹抗蓝光玻璃防黑鲨2代Pro-KPL游戏膜【超清款】单片装4
+#         新款蜡烛香薰机家用迷你加湿器智能家居 磨砂灰 英规适配器
+#         冷藏展示柜保鲜柜立式单门双门商用冰柜超市冰箱冷柜饮料柜 三门豪华铝合金款（风冷无霜1200GLF）
+#         新科广场舞播放器音响户外大音量便携式小型手提拉杆移动蓝牙音箱低音炮大功率超大带无线话筒演出家用K歌 M100户外音响+有线话筒+16G优盘
+#         听雨轩80支装中性笔芯0.5mm全针管水笔芯0.38学生用考试黑色笔芯女签字替芯办公教师碳素蓝色水文 80支经典(蓝色0.5mm)
+#         神舟战神Z8-CR7N1游戏笔记本外壳保护贴膜15.6英寸电脑机身炫彩贴纸Z8-CT7N DIY来图定制/发图给客服/备注图代号 ABC面+磨砂防反光屏幕膜+键盘膜
+#         惠普暗影精灵4键盘膜15.6寸笔记本键盘贴纸按键贴光影精灵4代pro plus 2/3代银河舰队畅游 暗影精灵4代pro （透明轻薄专用TPU键盘膜）
+#         2020新版考研答题卡英语一二数学一二政治联考答题卡纸 自命题(课)B卡
+#         龙视安500万poe监控器设备套装高清网络摄像头一体机商用室外工厂 无 20路
+#         爱普生（EPSON）投影仪 办公商务 高清高亮度 大型工程投影机 CB-G7800（8000流明 标清XGA）官方标配
+#         MECHENA5可外放mp3mp4音乐播放器学生随身听女生款超薄便携式p3插卡有屏p4学英语mp6深空灰8G外放版+蓝牙
+#         韩版创意文具糖果包装点心蛋糕造型橡皮擦幼儿园节日奖品开学礼物 1641糖果袋橡皮
+#         1.5米德国进口榉木画架木制支架式画板架写生油画架广告架1.7实木素描架套装楼盘木质展览架展示架多功 1.5米榉木画架+2K画板
+#         小米手环2/3/4腕带替换带3代4代金属手环带链式不锈钢防水智能运动真皮表带二代手环4NFC版男女款 【三珠加强款-黑色】 小米手环2腕带
+#         20本餐馆餐饮饭店点菜单一联单层二联三联点菜本无碳复写开单本点单本不复写2联3联加饭店菜单记账单 (20本常规)1联/每本40张/不复写
+#         长虹同款3节能省电大厦式取暖器家用宿舍立式摇头电暖器 大厦2
+#         毛笔字帖水写布文房四宝毛笔套装水写字帖书法练习仿宣纸初学者毛笔高档礼品文具套装小学生成人书法字帖精 中国红套装
+#         4本加厚笔记本子学生课堂笔记本日记本作业本记事本子韩版小清新好看的本子女生款少女心 A5线圈4本/60张/樱花之夏
+#         Sonoely 手机壳360°全包防摔PC保护套薄外壳 适用于vivox9s/X20/X21/R15 深邃蓝 华为P20
+#         Choseal秋叶原qs8113 hdmi线高清线2.0版数据线4k高清线电脑电视数据连接线3D电视入门级 12米
+#         索歌（SUOGE）鸭脖保鲜柜风冷鸭货展示柜冷藏熟食柜水果卤菜凉菜冒菜烧烤展示柜卧式商用大理石点菜柜 大理石直角【风冷款】【送除雾加湿器】1.2米【进口丹佛斯压缩机】
+#         华为畅享5S手机壳TAG-AL00保护套tag-t100软胶cloo防摔TL创意指环-保时捷【挂绳+指环】
+#         显示器屏增高架台式电脑办公桌面收纳底座托架抽屉创意置物架子竹 【小鹿2号爱心单抽】雕刻增高架【爱心抽屉】
+#         金正看戏机老人唱戏机高清多功能大屏幕老年广场舞视频播放器收音 19机皇护眼版+送32GU盘+送老人视频资源
+#         笔筒 简约ins北欧风金属笔筒铁艺玫瑰金笔筒 学生桌面文具收纳 办公室桌面摆件化妆品收纳桶 圆柱镂空 四方形铁艺笔筒 -浅金色
+#         圆珠笔0.7mm蓝色单支装办公学生文具用品原子笔芯按动油笔经典简约批发 60只装（笔杆颜色随机）送笔筒
+#         【非原厂物料】苹果iPhone华为手机电池屏幕上门/到店安装后壳摄像头尾插按键更换服务ipad换电池手机屏幕上门安装服务
+#         紫光唱片车载车用CD光盘黑胶CD-R音乐无损碟片空白黑胶mp3刻录盘紫光光碟黑胶片CD黑碟空白光盘空音乐风 CD5 片 + 光盘袋5 个 + 黑
+#         2020新年华为mate30手机壳女mate30Pro玻璃防摔硅胶全包个性情侣款鼠年本命年暴富手机mate30【好运连连+玻璃】送钢化膜+挂绳
+#         坚果 JmGO SU（含88英寸硬屏套餐） 4K激光电视投影仪 投影机家用 （4K超高清 2400ANSI流明 杜比音响） 
+#         安卓王者荣耀走位利器游戏手柄手机吃鸡遥控辅助器A9绝地火线 Type-C版【1条装】+供电线 其他
+#         日照鑫 镭射玫瑰和纸胶带小清新diy手账胶带日记相册装饰贴纸 5个装 圆形烫玫瑰金
+#         纠错本子考研大学生初高中生纠正科目简约错题集 橙色4本装 胡萝卜北系列
+#         """
+#     lines = [
+#         line.strip() for line in corpus.split("\n") if len(line.strip()) > 0
+#     ]
+
+#     model_name_or_path = "/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base"
+#     vocab_file = os.path.join(model_name_or_path, "vocab.txt")
+#     tokenizer = BertTokenizerZh.from_pretrained(vocab_file, do_ref_tokenize=False)
+#     seg_res, ref_ids = prepare_ref(lines, None, tokenizer)
+
+#     tokenizer = BertTokenizerZh.from_pretrained(vocab_file, do_ref_tokenize=True)
+#     examples = [
+#         tokenizer(line, padding=False, truncation=True, max_length=128)
+#         for line in lines
+#     ]
+#     for example, refs in zip(examples, ref_ids):
+#         example["chinese_ref"] = refs
+
+#     data_collator = DataCollatorForNGramWholeWordMask(
+#         tokenizer=tokenizer, 
+#         mlm_probability=0.15, 
+#         max_ngram=4, 
+#         # mlm_as_correction=False,
+#     )
+#     data_collator(examples)

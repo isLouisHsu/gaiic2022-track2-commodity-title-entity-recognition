@@ -79,7 +79,7 @@ def add_sub_symbol(bert_tokens: List[str], chinese_word_set: set()):
 def prepare_ref(lines: List[str], ltp_tokenizer: LTP, bert_tokenizer: BertTokenizerZh):
     seg_res = []
     for i in trange(0, len(lines), 100):
-        if ltp_tokenizer is None:
+        if ltp_tokenizer is not None:
             # ltp
             res = ltp_tokenizer.seg(lines[i : i + 100])[0]
         else:
@@ -128,7 +128,7 @@ def main(args):
     data = [line.strip() for line in data if len(line) > 0 and not line.isspace()]  # avoid delimiter like '\u2029'
     
     ltp_tokenizer = None if args.ltp is None else LTP(args.ltp)  # faster in GPU device
-    bert_tokenizer = BertTokenizerZh.from_pretrained(args.bert)
+    bert_tokenizer = BertTokenizerZh.from_pretrained(args.bert, do_ref_tokenize=False)
     
     seg_res, ref_ids = prepare_ref(data, ltp_tokenizer, bert_tokenizer)
     with open(args.seg_save_path, "w", encoding="utf-8") as f:

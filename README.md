@@ -4,6 +4,14 @@
 
 ## 更新
 
+### 2022/4/12
+1. 实验
+   - `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.1-span50-e6-bs12x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8117；
+   - `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.1-span50-e6-bs12x2-sinusoidal-fgm1.0-rdrop0.3`，线下0.8142，线上0.8123719204143346；
+   - `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.1-span50-w64-e6-bs12x2-sinusoidal-fgm1.0-rdrop0.3`，线下0.814；
+2. 新增`~run_mlm_wwwm.DataCollatorForNGramWholeWordMask`，支持ngram mask，以及macbert（同义词待实现）；
+3. `~tokenization_bert_zh.BertTokenizerZh`将space token移除special tokens，并重写`tokenize`函数；
+
 ### 2022/4/11
 1. 完善`~tokenization_bert_zh.BertTokenizerZh`：
    - 新增`do_ref_tokenize`参数，并重写`_tokenize_chinese_chars`，可实现带词汇信息的中文分词（基于`jieba`）；
