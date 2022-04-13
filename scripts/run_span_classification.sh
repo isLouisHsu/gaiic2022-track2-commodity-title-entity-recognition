@@ -1812,3 +1812,137 @@ python run_span_classification_v2.py \
 #   eval_f1_micro_all_entity = 0.814
 #   eval_f1_micro_without_label_entity = 0.9048
 #   eval_loss = 0.0111
+
+# v2，ref，10折，当前最优参数，基线
+# ['名', '##片', '##盒', '+', '亚', '##克', '##力', 'a4', '三', '折', '##页', '多', '##层', '资', '##料', '桌', '##面', '展', '##示', '##架', '宣', '##传', '架', '##彩', '##页', '架', '书', '##报', '##刊', '架', '[unused1]', 'a6', '三', '##层', '资', '##料', '架']
+python run_span_classification_v2.py \
+    --experiment_code=nezha-ref-154k-spanv2-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-word-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2/checkpoint-154000/ \
+    --data_dir=data/processed/v4/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case --do_ref_tokenize \
+    --output_dir=outputs/ \
+    --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable --adv_epsilon=1.0 \
+    --do_rdrop --rdrop_weight=0.3 \
+    --seed=42
+# 2022-04-13 08:00:07 - INFO - root -   eval_f1_micro_all_entity = 0.8129
+# 2022-04-13 08:00:07 - INFO - root -   eval_f1_micro_without_label_entity = 0.9047
+# 2022-04-13 08:00:07 - INFO - root -   eval_loss = 0.0127
+
+# TODO:
+# v1，ref，10折，当前最优参数，基线
+# ['名', '##片', '##盒', '+', '亚', '##克', '##力', 'a', '4', '三', '折', '##页', '多', '##层', '资', '##料', '桌', '##面', '展', '##示', '##架', '宣', '##传', '架', '##彩', '##页', '架', '书', '##报', '##刊', '架', '[unused1]', 'a', '6', '三', '##层', '资', '##料', '架']
+python run_span_classification_v1.py \
+    --experiment_code=nezha-ref-154k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-word-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2/checkpoint-154000/ \
+    --data_dir=data/processed/v4/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case --do_ref_tokenize \
+    --output_dir=outputs/ \
+    --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable --adv_epsilon=1.0 \
+    --do_rdrop --rdrop_weight=0.3 \
+    --seed=42
+
+# TODO:
+# v1，10折，当前最优参数，基线
+# ['名', '片', '盒', '+', '亚', '克', '力', 'a', '4', '三', '折', '页', '多', '层', '资', '料', '桌', '面', '展', '示', '架', '宣', '传', '架', '彩', '页', '架', '书', '报', '刊', '架', '[unused1]', 'a', '6', '三', '层', '资', '料', '架']
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v4/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable --adv_epsilon=1.0 \
+    --do_rdrop --rdrop_weight=0.3 \
+    --seed=42
+2022-04-13 08:04:47 - INFO - root -   eval_f1_micro_all_entity = 0.8135
+2022-04-13 08:04:47 - INFO - root -   eval_f1_micro_without_label_entity = 0.9056
+2022-04-13 08:04:47 - INFO - root -   eval_loss = 0.0105
