@@ -1826,7 +1826,7 @@ python run_span_classification_v2.py \
     --test_input_file=word_per_line_preliminary_A.jsonl \
     --do_lower_case --do_ref_tokenize \
     --output_dir=outputs/ \
-    --do_eval \
+    --do_train --do_eval \
     --evaluate_during_training \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
@@ -1858,7 +1858,6 @@ python run_span_classification_v2.py \
 # 2022-04-13 08:00:07 - INFO - root -   eval_f1_micro_without_label_entity = 0.9047
 # 2022-04-13 08:00:07 - INFO - root -   eval_loss = 0.0127
 
-# TODO:
 # v1，ref，10折，当前最优参数，基线
 # ['名', '##片', '##盒', '+', '亚', '##克', '##力', 'a', '4', '三', '折', '##页', '多', '##层', '资', '##料', '桌', '##面', '展', '##示', '##架', '宣', '##传', '架', '##彩', '##页', '架', '书', '##报', '##刊', '架', '[unused1]', 'a', '6', '三', '##层', '资', '##料', '架']
 python run_span_classification_v1.py \
@@ -1900,8 +1899,10 @@ python run_span_classification_v1.py \
     --adv_enable --adv_epsilon=1.0 \
     --do_rdrop --rdrop_weight=0.3 \
     --seed=42
+# 2022-04-15 18:42:39 - INFO - root -   eval_f1_micro_all_entity = 0.8121
+# 2022-04-15 18:42:39 - INFO - root -   eval_f1_micro_without_label_entity = 0.9042
+# 2022-04-15 18:42:39 - INFO - root -   eval_loss = 0.0107
 
-# TODO:
 # v1，10折，当前最优参数，基线
 # ['名', '片', '盒', '+', '亚', '克', '力', 'a', '4', '三', '折', '页', '多', '层', '资', '料', '桌', '面', '展', '示', '架', '宣', '传', '架', '彩', '页', '架', '书', '报', '刊', '架', '[unused1]', 'a', '6', '三', '层', '资', '料', '架']
 python run_span_classification_v1.py \
@@ -1915,7 +1916,7 @@ python run_span_classification_v1.py \
     --test_input_file=word_per_line_preliminary_A.jsonl \
     --do_lower_case \
     --output_dir=outputs/ \
-    --do_eval \
+    --do_train --do_eval \
     --evaluate_during_training \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
@@ -1943,6 +1944,14 @@ python run_span_classification_v1.py \
     --adv_enable --adv_epsilon=1.0 \
     --do_rdrop --rdrop_weight=0.3 \
     --seed=42
-2022-04-13 08:04:47 - INFO - root -   eval_f1_micro_all_entity = 0.8135
-2022-04-13 08:04:47 - INFO - root -   eval_f1_micro_without_label_entity = 0.9056
-2022-04-13 08:04:47 - INFO - root -   eval_loss = 0.0105
+# 2022-04-13 08:04:47 - INFO - root -   eval_f1_micro_all_entity = 0.8135
+# 2022-04-13 08:04:47 - INFO - root -   eval_f1_micro_without_label_entity = 0.9056
+# 2022-04-13 08:04:47 - INFO - root -   eval_loss = 0.0105
+# ---
+# 线上 0.812235943611719 
+# 2022-04-15 21:42:09 - INFO - root -   eval_f1_micro_all_entity = 0.8131
+# 2022-04-15 21:42:09 - INFO - root -   eval_f1_micro_without_label_entity = 0.9054
+# 2022-04-15 21:42:09 - INFO - root -   eval_loss = 0.0105
+
+
+    # --do_biaffine_rel \
