@@ -331,7 +331,8 @@ class BertTokenizerZh(BertTokenizer):
                                 tokens.append(sub_token)
                                 sub_start, sub_end = sub_start + offset_start, sub_end + offset_start
                                 offsets_mapping.append([sub_start, sub_end])
-                                offset_start = sub_end
+                            if offsets_mapping:
+                                offset_start = offsets_mapping[-1][-1]
                     return self.convert_tokens_to_ids(tokens), offsets_mapping
                 elif is_pre_tokenized:
                     return self.convert_tokens_to_ids(text), None

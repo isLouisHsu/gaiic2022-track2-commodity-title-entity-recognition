@@ -594,17 +594,27 @@ class LevelConvertorHuggingFace(LevelConvertorBase):
 class LevelConvertorHuggingFaceZh(LevelConvertorHuggingFace):
 
     def _convert(self, text):
+        num_chars = len(text)
+        if getattr(self.tokenizer, "do_ref_tokenize"):
+            text = "".join(text)
+            words = []
+            for word in jieba.cut(text):
+                if is_chinese(word):
+                    words.append(word)
+                else:
+                    words.extend(list(word))
+            text = words
         inputs = self.tokenizer(
-            text, 
-            # is_split_into_words=True, 
-            # is_pre_tokenized=True,
-            return_offsets_mapping=True, 
+            text,
+            is_split_into_words=True,
+            return_offsets_mapping=True,
             return_tensors="np"
         )
         tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])[1:-1]
+        assert len(tokens) == num_chars
         offset_mapping = inputs["offset_mapping"][0].tolist()[1:-1]     # [CLS], [SEP]
         return tokens, offset_mapping
-    
+   
     def _forward(self, tokens):
         return self.tokenizer.convert_tokens_to_string(tokens)
 
@@ -2600,7 +2610,7 @@ def main(opts):
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_train_examples)
-    if (opts.do_train or opts.do_eval) and opts.evaluate_during_training:
+    if ((not opts.do_train) or (opts.do_train and  opts.evaluate_during_training)) and opts.do_eval:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
                                     tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_eval_examples)
