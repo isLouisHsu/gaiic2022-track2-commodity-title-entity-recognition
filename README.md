@@ -4,6 +4,11 @@
 
 ## 更新
 
+### 2022/4/16
+1. `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8135，线上 0.812235943611719；
+2. `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-wup0.0-schecos-dp.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8129；
+3. `nezha-100k-spanv1-datav4-lr2e-5-wd0.01-dp0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8123；
+
 ### 2022/4/12
 1. 实验
    - `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.1-span50-e6-bs12x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8117；
