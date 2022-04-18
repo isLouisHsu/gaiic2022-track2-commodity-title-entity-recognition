@@ -4,6 +4,15 @@
 
 ## 更新
 
+### 2022/4/18
+1. K折训练，`nezha-100k-spanv1-datav2.${k}-pre-lr3e-5-wd0.01-dropout0.3-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0`，每折线下0.8098(线上0.8107454805205765)，0.8096，0.8087，0.8126，0.8112，均值集成线上0.813503921456291；
+2. `nezha-100k-spanv1-datav3-pre-lr3e-5-wd0.01-dropout0.3-span50-e6-bs32x1-sinusoidal-fgm1.0-rdrop0.3-lsr0.1`，线上0.8122967064554684；
+
+### 2022/4/17
+1. 新增`~torchblocks.callback.adversarial.awp.AWP`；
+2. `nezha-100k-spanv1-datav4-lr2e-5-wd0.01-dp0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8123；
+3. `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1-rdrop0.3`，线下0.8109；
+
 ### 2022/4/16
 1. `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8135，线上 0.812235943611719；
 2. `nezha-100k-spanv1-datav4-lr3e-5-wd0.01-wup0.0-schecos-dp.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8129；
