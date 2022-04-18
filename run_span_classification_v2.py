@@ -2589,7 +2589,7 @@ def main(opts):
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_train_examples)
-    if ((not opts.do_train) or (opts.do_train and  opts.evaluate_during_training)) and opts.do_eval:
+    if (opts.do_train and opts.evaluate_during_training) or opts.do_eval:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
                                     tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_eval_examples)

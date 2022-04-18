@@ -4,5 +4,6 @@ data/processed/*
 data/raw/*
 data/word_synonyms_map.wv.json
 outputs/*
+submissions/*
 nohup.out
 !.gitkeep

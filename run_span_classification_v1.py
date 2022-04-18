@@ -684,7 +684,78 @@ class ProcessConvertLevel(ProcessBase):
 
 
 class ProcessPreprocess(ProcessBase):
-    pass    # TODO: 全半角转换等
+
+    FH_SPACE = FHS = ((u"　", u" "),)
+    FH_NUM = FHN = (
+        (u"０", u"0"), (u"１", u"1"), (u"２", u"2"), (u"３", u"3"), (u"４", u"4"),
+        (u"５", u"5"), (u"６", u"6"), (u"７", u"7"), (u"８", u"8"), (u"９", u"9"),
+    )
+    FH_ALPHA = FHA = (
+        (u"ａ", u"a"), (u"ｂ", u"b"), (u"ｃ", u"c"), (u"ｄ", u"d"), (u"ｅ", u"e"),
+        (u"ｆ", u"f"), (u"ｇ", u"g"), (u"ｈ", u"h"), (u"ｉ", u"i"), (u"ｊ", u"j"),
+        (u"ｋ", u"k"), (u"ｌ", u"l"), (u"ｍ", u"m"), (u"ｎ", u"n"), (u"ｏ", u"o"),
+        (u"ｐ", u"p"), (u"ｑ", u"q"), (u"ｒ", u"r"), (u"ｓ", u"s"), (u"ｔ", u"t"),
+        (u"ｕ", u"u"), (u"ｖ", u"v"), (u"ｗ", u"w"), (u"ｘ", u"x"), (u"ｙ", u"y"), (u"ｚ", u"z"),
+        (u"Ａ", u"A"), (u"Ｂ", u"B"), (u"Ｃ", u"C"), (u"Ｄ", u"D"), (u"Ｅ", u"E"),
+        (u"Ｆ", u"F"), (u"Ｇ", u"G"), (u"Ｈ", u"H"), (u"Ｉ", u"I"), (u"Ｊ", u"J"),
+        (u"Ｋ", u"K"), (u"Ｌ", u"L"), (u"Ｍ", u"M"), (u"Ｎ", u"N"), (u"Ｏ", u"O"),
+        (u"Ｐ", u"P"), (u"Ｑ", u"Q"), (u"Ｒ", u"R"), (u"Ｓ", u"S"), (u"Ｔ", u"T"),
+        (u"Ｕ", u"U"), (u"Ｖ", u"V"), (u"Ｗ", u"W"), (u"Ｘ", u"X"), (u"Ｙ", u"Y"), (u"Ｚ", u"Z"),
+    )
+    FH_PUNCTUATION = FHP = (
+        (u"．", u"."), (u"，", u","), (u"！", u"!"), (u"？", u"?"), (u"”", u'"'),
+        (u"’", u"'"), (u"‘", u"`"), (u"＠", u"@"), (u"＿", u"_"), (u"：", u":"),
+        (u"；", u";"), (u"＃", u"#"), (u"＄", u"$"), (u"％", u"%"), (u"＆", u"&"),
+        (u"（", u"("), (u"）", u")"), (u"‐", u"-"), (u"＝", u"="), (u"＊", u"*"),
+        (u"＋", u"+"), (u"－", u"-"), (u"／", u"/"), (u"＜", u"<"), (u"＞", u">"),
+        (u"［", u"["), (u"￥", u"\\"), (u"］", u"]"), (u"＾", u"^"), (u"｛", u"{"),
+        (u"｜", u"|"), (u"｝", u"}"), (u"～", u"~"),
+    )
+    FH_ASCII = HAC = lambda: ((fr, to) for m in (FH_ALPHA, FH_NUM, FH_PUNCTUATION) for fr, to in m)
+    HF_SPACE = HFS = ((u" ", u"　"),)
+    HF_NUM = HFN = lambda: ((h, z) for z, h in FH_NUM)
+    HF_ALPHA = HFA = lambda: ((h, z) for z, h in FH_ALPHA)
+    HF_PUNCTUATION = HFP = lambda: ((h, z) for z, h in FH_PUNCTUATION)
+    HF_ASCII = ZAC = lambda: ((h, z) for z, h in FH_ASCII())
+
+    def convert(self, text, *maps, **ops):
+        """ 全角/半角转换
+        args:
+            text: unicode string need to convert
+            maps: conversion maps
+            skip: skip out of character. In a tuple or string
+            return: converted unicode string
+        """
+        if "skip" in ops:
+            skip = ops["skip"]
+            if isinstance(skip, str):
+                skip = tuple(skip)
+            def replace(text, fr, to):
+                return text if fr in skip else text.replace(fr, to)
+        else:
+            def replace(text, fr, to):
+                return text.replace(fr, to)
+        for m in maps:
+            if callable(m):
+                m = m()
+            elif isinstance(m, dict):
+                m = m.items()
+            for fr, to in m:
+                text = replace(text, fr, to)
+        return text
+
+    def __call__(self, example):
+        example = deepcopy(example)
+        full_half_convert = lambda x: self.convert(
+            x, 
+            self.FH_SPACE, 
+            self.FH_NUM, 
+            self.FH_ALPHA, 
+            self.FH_PUNCTUATION
+        )
+        for i, ch in enumerate(example["text"]):
+            example["text"][i] = full_half_convert(ch)
+        return example
 
 
 class ProcessMergeDiscontinuousSpans(ProcessBase):
@@ -1298,6 +1369,7 @@ class ConditionalProcessExample2Feature(ProcessExample2Feature):
 
 def load_dataset(data_class, process_class, data_name, data_dir, data_type, tokenizer, max_sequence_length, 
                  context_size, max_span_length, negative_sampling, stanza_nlp=None, **kwargs):
+    do_preprocess = "do_preprocess" in kwargs and kwargs.pop("do_preprocess")
     process_piplines = [
         # AugmentRandomMask(p=0.1) if data_type == "train" else None,
         # AugmentDropRandomEntity(p=0.1) if data_type == "train" else None,
@@ -1309,6 +1381,7 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         #         "37", "38", "39", "40",
         #     }
         # ]) if data_type == "train" else None,
+        ProcessPreprocess() if do_preprocess else None,
         ProcessConvertLevel(tokenizer, "word2char") if data_class in [  # english
 
         ] else None,
@@ -1992,8 +2065,22 @@ class ModelForSpanClassification(PreTrainedModel):
                 packed_sequence_output, batch_first=True, total_length=sequence_lengths.max())
             sequence_output = sequence_output + unpacked_sequence_output
 
+        # self.dropout.p = np.random.uniform(0, 0.5)
         sequence_output = self.dropout(sequence_output)
         logits = self.head(sequence_output, spans)          # (batch_size, num_spans, num_labels)
+
+        # logits = None
+        # n = 5
+        # p = self.dropout.p
+        # for i in range(n):
+        #     self.dropout.p = (i + 1) * 0.1
+        #     if i == 0:
+        #         logits = self.head(self.dropout(sequence_output), spans)
+        #     else:
+        #         logits = logits + self.head(self.dropout(sequence_output), spans)
+        # self.dropout.p = p
+        # logits = logits / n
+
         predictions = None
         if not self.training:
             predictions = self.decode(logits, spans, spans_mask, self.config.decode_thresh,
@@ -2484,6 +2571,7 @@ def build_opts():
         group.add_argument("--negative_sampling", type=float, default=0.0)
         group.add_argument("--max_span_length", type=int, default=30)
         group.add_argument("--width_embedding_size", type=int, default=128)
+        group.add_argument("--do_preprocess", action="store_true")
         group.add_argument("--loss_type", type=str, default="lsr", choices=["ce", "lsr", "focal"])
         group.add_argument("--label_smoothing", type=float, default=0.0)
         group.add_argument("--focal_gamma", type=float, default=2.0)
@@ -2609,15 +2697,21 @@ def main(opts):
     if opts.do_train or opts.do_check:
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
-                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_train_examples)
-    if ((not opts.do_train) or (opts.do_train and  opts.evaluate_during_training)) and opts.do_eval:
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, 
+                                    max_examples=opts.max_train_examples, do_preprocess=opts.do_preprocess,
+                                    )
+    if (opts.do_train and opts.evaluate_during_training) or opts.do_eval:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
                                     tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
-                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_eval_examples)
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, 
+                                    max_examples=opts.max_eval_examples, do_preprocess=opts.do_preprocess,
+                                    )
     if opts.do_predict:
         test_dataset  = load_dataset(data_class, process_class, opts.test_input_file, opts.data_dir, "test",
                                     tokenizer, opts.test_max_seq_length, opts.context_size, opts.max_span_length,
-                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, max_examples=opts.max_test_examples)
+                                    opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, 
+                                    max_examples=opts.max_test_examples, do_preprocess=opts.do_preprocess,
+                                    )
     if stanza_nlp is not None and train_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
         del stanza_nlp
     opts.label2id = data_class.label2id()

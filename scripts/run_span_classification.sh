@@ -1954,6 +1954,47 @@ python run_span_classification_v1.py \
 # 2022-04-15 21:42:09 - INFO - root -   eval_loss = 0.0105
 
 python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-test \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v4/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_train --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --adam_epsilon=1e-6 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable --adv_epsilon=1.0 \
+    --do_rdrop --rdrop_weight=0.3 \
+    --seed=42
+
+python run_span_classification_v1.py \
     --experiment_code=nezha-100k-spanv1-datav4-lr3e-5-wd0.01-wup0.0-schecos-dp.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3 \
     --task_name=gaiic \
     --model_type=nezha \
@@ -2039,8 +2080,154 @@ python run_span_classification_v1.py \
 # 2022-04-16 22:54:13 - INFO - root -   eval_f1_micro_without_label_entity = 0.9035
 # 2022-04-16 22:54:13 - INFO - root -   eval_loss = 0.0106
 
-    # --adam_epsilon=1e-8 \
-    # --do_biaffine_rel \
-    # --fp16 \
-    # --adv_enable --adv_type=awp --adv_epsilon=0.2 --adv_alpha=1.0 \
-    # --adv_start_steps
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1-rdrop0.3 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v4/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_train --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=32 \
+    --per_gpu_eval_batch_size=32 \
+    --per_gpu_test_batch_size=32 \
+    --gradient_accumulation_steps=1 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --adv_enable --adv_start_steps=1000 \
+    --adv_type=awp --adv_epsilon=0.001 --adv_alpha=1.0 \
+    --adv_number=1 --adv_name=weight \
+    --do_rdrop --rdrop_weight=0.3 \
+    --do_biaffine \
+    --seed=42 \
+    --fp16
+# 2022-04-17 12:19:21 - INFO - root -   eval_f1_micro_all_entity = 0.8109
+# 2022-04-17 12:19:21 - INFO - root -   eval_f1_micro_without_label_entity = 0.9047
+# 2022-04-17 12:19:21 - INFO - root -   eval_loss = 0.011
+
+# preprocess & random dropout & lr5e-5 & fgm0.5
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav4.0-pre-lr5e-5-wd0.01-dropout.0-5-span35-e6-bs32x1-sinusoidal-biaffine-fgm0.5 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v4/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case --do_preprocess \
+    --output_dir=outputs/ \
+    --do_train --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=32 \
+    --per_gpu_eval_batch_size=32 \
+    --per_gpu_test_batch_size=32 \
+    --gradient_accumulation_steps=1 \
+    --learning_rate=5e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --adv_enable --adv_epsilon=0.5 \
+    --do_rdrop --rdrop_weight=0.3 \
+    --do_biaffine \
+    --seed=42 \
+    --fp16
+
+# v2(5fold) preprocess
+# for k in 0 1 2 3 4
+for k in 2 3 4
+do
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav2.${k}-pre-lr3e-5-wd0.01-dropout0.3-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v2/ \
+    --train_input_file=train.${k}.jsonl \
+    --eval_input_file=dev.${k}.jsonl \
+    --test_input_file=word_per_line_preliminary_A.jsonl \
+    --do_lower_case \
+    --do_preprocess \
+    --output_dir=outputs/ \
+    --do_train --do_predict \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=32 \
+    --per_gpu_eval_batch_size=32 \
+    --per_gpu_test_batch_size=32 \
+    --gradient_accumulation_steps=1 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --adv_enable --adv_epsilon=1.0 \
+    --do_rdrop --rdrop_weight=0.3 \
+    --do_biaffine \
+    --seed=42 \
+    --fp16
+done
+#   eval_f1_micro_all_entity = 0.8098
+#   eval_f1_micro_without_label_entity = 0.9025
+#   eval_loss = 0.011
+#   线上0.8107454805205765
+#   ---
+#   eval_f1_micro_all_entity = 0.8096
+#   eval_f1_micro_without_label_entity = 0.9023
+#   eval_loss = 0.011
+#   ---
+#   eval_f1_micro_all_entity = 0.8087
+#   eval_f1_micro_without_label_entity = 0.9024
+#   eval_loss = 0.0109
+#   ---
+#   eval_f1_micro_all_entity = 0.8126
+#   eval_f1_micro_without_label_entity = 0.9039
+#   eval_loss = 0.0109
+#   ---
+#   eval_f1_micro_all_entity = 0.8112
+#   eval_f1_micro_without_label_entity = 0.903
+#   eval_loss = 0.0109
