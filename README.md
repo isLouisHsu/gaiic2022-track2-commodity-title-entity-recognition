@@ -4,6 +4,9 @@
 
 ## 更新
 
+### 2022/4/19
+1. 以[2022/4/18](#2022418)结果作为伪标签训练，`nezha-100k-base-spanv1-datav7-pre-lr3e-5-wd0.01-dropout0.3-span35-e8-bs32x1-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132154960622345；
+
 ### 2022/4/18
 1. K折训练，`nezha-100k-spanv1-datav2.${k}-pre-lr3e-5-wd0.01-dropout0.3-span35-e6-bs32x1-sinusoidal-biaffine-fgm1.0`，每折线下0.8098(线上0.8107454805205765)，0.8096，0.8087，0.8126，0.8112，均值集成线上0.813503921456291；
 2. `nezha-100k-spanv1-datav3-pre-lr3e-5-wd0.01-dropout0.3-span50-e6-bs32x1-sinusoidal-fgm1.0-rdrop0.3-lsr0.1`，线上0.8122967064554684；
