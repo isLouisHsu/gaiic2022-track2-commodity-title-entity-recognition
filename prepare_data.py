@@ -74,6 +74,7 @@ if __name__ == "__main__":
     parser.add_argument("--labeled_files", type=str, nargs="+", default=[
         "data/raw/train_data/train.txt",
     ])
+    parser.add_argument("--pseudo_files", type=str, nargs="+", default=None)
     parser.add_argument("--unlabeled_files", type=str, nargs="+", default=None)
     parser.add_argument("--test_files", type=str, nargs="+", default=[
         "data/raw/preliminary_test_a/word_per_line_preliminary_A.txt",
@@ -113,6 +114,15 @@ if __name__ == "__main__":
             for example in labeled_examples:
                 f.write(json.dumps(example, ensure_ascii=False) + "\n")
     
+    if args.pseudo_files is not None:
+        pseudo_examples = []
+        for pseudo_file in args.pseudo_files:
+            pseudo_examples.extend(create_examples(generate_examples(pseudo_file), "pseudo"))
+        print(f"#pseudo={len(pseudo_examples)}")
+        with open(os.path.join(args.output_dir, f"pseudo.jsonl"), "w") as f:
+            for example in pseudo_examples:
+                f.write(json.dumps(example, ensure_ascii=False) + "\n")
+
     if args.unlabeled_files is not None:
         unlabeled_examples = []; count = 0
         for unlabeled_file in args.unlabeled_files:

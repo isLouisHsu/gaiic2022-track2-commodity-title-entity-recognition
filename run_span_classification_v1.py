@@ -31,6 +31,8 @@ import torch
 from torch import nn
 from torch.nn import init
 from torch.nn import functional as F
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.sampler import RandomSampler
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 
 from transformers import (
@@ -682,41 +684,40 @@ class ProcessConvertLevel(ProcessBase):
     def token_to_word(self, tokens, token_level_entities):
         return self.char_to_word(*self.token_to_char(tokens, token_level_entities))
 
+FH_SPACE = FHS = ((u"　", u" "),)
+FH_NUM = FHN = (
+    (u"０", u"0"), (u"１", u"1"), (u"２", u"2"), (u"３", u"3"), (u"４", u"4"),
+    (u"５", u"5"), (u"６", u"6"), (u"７", u"7"), (u"８", u"8"), (u"９", u"9"),
+)
+FH_ALPHA = FHA = (
+    (u"ａ", u"a"), (u"ｂ", u"b"), (u"ｃ", u"c"), (u"ｄ", u"d"), (u"ｅ", u"e"),
+    (u"ｆ", u"f"), (u"ｇ", u"g"), (u"ｈ", u"h"), (u"ｉ", u"i"), (u"ｊ", u"j"),
+    (u"ｋ", u"k"), (u"ｌ", u"l"), (u"ｍ", u"m"), (u"ｎ", u"n"), (u"ｏ", u"o"),
+    (u"ｐ", u"p"), (u"ｑ", u"q"), (u"ｒ", u"r"), (u"ｓ", u"s"), (u"ｔ", u"t"),
+    (u"ｕ", u"u"), (u"ｖ", u"v"), (u"ｗ", u"w"), (u"ｘ", u"x"), (u"ｙ", u"y"), (u"ｚ", u"z"),
+    (u"Ａ", u"A"), (u"Ｂ", u"B"), (u"Ｃ", u"C"), (u"Ｄ", u"D"), (u"Ｅ", u"E"),
+    (u"Ｆ", u"F"), (u"Ｇ", u"G"), (u"Ｈ", u"H"), (u"Ｉ", u"I"), (u"Ｊ", u"J"),
+    (u"Ｋ", u"K"), (u"Ｌ", u"L"), (u"Ｍ", u"M"), (u"Ｎ", u"N"), (u"Ｏ", u"O"),
+    (u"Ｐ", u"P"), (u"Ｑ", u"Q"), (u"Ｒ", u"R"), (u"Ｓ", u"S"), (u"Ｔ", u"T"),
+    (u"Ｕ", u"U"), (u"Ｖ", u"V"), (u"Ｗ", u"W"), (u"Ｘ", u"X"), (u"Ｙ", u"Y"), (u"Ｚ", u"Z"),
+)
+FH_PUNCTUATION = FHP = (
+    (u"．", u"."), (u"，", u","), (u"！", u"!"), (u"？", u"?"), (u"”", u'"'),
+    (u"’", u"'"), (u"‘", u"`"), (u"＠", u"@"), (u"＿", u"_"), (u"：", u":"),
+    (u"；", u";"), (u"＃", u"#"), (u"＄", u"$"), (u"％", u"%"), (u"＆", u"&"),
+    (u"（", u"("), (u"）", u")"), (u"‐", u"-"), (u"＝", u"="), (u"＊", u"*"),
+    (u"＋", u"+"), (u"－", u"-"), (u"／", u"/"), (u"＜", u"<"), (u"＞", u">"),
+    (u"［", u"["), (u"￥", u"\\"), (u"］", u"]"), (u"＾", u"^"), (u"｛", u"{"),
+    (u"｜", u"|"), (u"｝", u"}"), (u"～", u"~"),
+)
+FH_ASCII = HAC = lambda: ((fr, to) for m in (FH_ALPHA, FH_NUM, FH_PUNCTUATION) for fr, to in m)
+HF_SPACE = HFS = ((u" ", u"　"),)
+HF_NUM = HFN = lambda: ((h, z) for z, h in FH_NUM)
+HF_ALPHA = HFA = lambda: ((h, z) for z, h in FH_ALPHA)
+HF_PUNCTUATION = HFP = lambda: ((h, z) for z, h in FH_PUNCTUATION)
+HF_ASCII = ZAC = lambda: ((h, z) for z, h in FH_ASCII())
 
 class ProcessPreprocess(ProcessBase):
-
-    FH_SPACE = FHS = ((u"　", u" "),)
-    FH_NUM = FHN = (
-        (u"０", u"0"), (u"１", u"1"), (u"２", u"2"), (u"３", u"3"), (u"４", u"4"),
-        (u"５", u"5"), (u"６", u"6"), (u"７", u"7"), (u"８", u"8"), (u"９", u"9"),
-    )
-    FH_ALPHA = FHA = (
-        (u"ａ", u"a"), (u"ｂ", u"b"), (u"ｃ", u"c"), (u"ｄ", u"d"), (u"ｅ", u"e"),
-        (u"ｆ", u"f"), (u"ｇ", u"g"), (u"ｈ", u"h"), (u"ｉ", u"i"), (u"ｊ", u"j"),
-        (u"ｋ", u"k"), (u"ｌ", u"l"), (u"ｍ", u"m"), (u"ｎ", u"n"), (u"ｏ", u"o"),
-        (u"ｐ", u"p"), (u"ｑ", u"q"), (u"ｒ", u"r"), (u"ｓ", u"s"), (u"ｔ", u"t"),
-        (u"ｕ", u"u"), (u"ｖ", u"v"), (u"ｗ", u"w"), (u"ｘ", u"x"), (u"ｙ", u"y"), (u"ｚ", u"z"),
-        (u"Ａ", u"A"), (u"Ｂ", u"B"), (u"Ｃ", u"C"), (u"Ｄ", u"D"), (u"Ｅ", u"E"),
-        (u"Ｆ", u"F"), (u"Ｇ", u"G"), (u"Ｈ", u"H"), (u"Ｉ", u"I"), (u"Ｊ", u"J"),
-        (u"Ｋ", u"K"), (u"Ｌ", u"L"), (u"Ｍ", u"M"), (u"Ｎ", u"N"), (u"Ｏ", u"O"),
-        (u"Ｐ", u"P"), (u"Ｑ", u"Q"), (u"Ｒ", u"R"), (u"Ｓ", u"S"), (u"Ｔ", u"T"),
-        (u"Ｕ", u"U"), (u"Ｖ", u"V"), (u"Ｗ", u"W"), (u"Ｘ", u"X"), (u"Ｙ", u"Y"), (u"Ｚ", u"Z"),
-    )
-    FH_PUNCTUATION = FHP = (
-        (u"．", u"."), (u"，", u","), (u"！", u"!"), (u"？", u"?"), (u"”", u'"'),
-        (u"’", u"'"), (u"‘", u"`"), (u"＠", u"@"), (u"＿", u"_"), (u"：", u":"),
-        (u"；", u";"), (u"＃", u"#"), (u"＄", u"$"), (u"％", u"%"), (u"＆", u"&"),
-        (u"（", u"("), (u"）", u")"), (u"‐", u"-"), (u"＝", u"="), (u"＊", u"*"),
-        (u"＋", u"+"), (u"－", u"-"), (u"／", u"/"), (u"＜", u"<"), (u"＞", u">"),
-        (u"［", u"["), (u"￥", u"\\"), (u"］", u"]"), (u"＾", u"^"), (u"｛", u"{"),
-        (u"｜", u"|"), (u"｝", u"}"), (u"～", u"~"),
-    )
-    FH_ASCII = HAC = lambda: ((fr, to) for m in (FH_ALPHA, FH_NUM, FH_PUNCTUATION) for fr, to in m)
-    HF_SPACE = HFS = ((u" ", u"　"),)
-    HF_NUM = HFN = lambda: ((h, z) for z, h in FH_NUM)
-    HF_ALPHA = HFA = lambda: ((h, z) for z, h in FH_ALPHA)
-    HF_PUNCTUATION = HFP = lambda: ((h, z) for z, h in FH_PUNCTUATION)
-    HF_ASCII = ZAC = lambda: ((h, z) for z, h in FH_ASCII())
 
     def convert(self, text, *maps, **ops):
         """ 全角/半角转换
@@ -748,10 +749,10 @@ class ProcessPreprocess(ProcessBase):
         example = deepcopy(example)
         full_half_convert = lambda x: self.convert(
             x, 
-            self.FH_SPACE, 
-            self.FH_NUM, 
-            self.FH_ALPHA, 
-            self.FH_PUNCTUATION
+            FH_SPACE, 
+            FH_NUM, 
+            FH_ALPHA, 
+            FH_PUNCTUATION
         )
         for i, ch in enumerate(example["text"]):
             example["text"][i] = full_half_convert(ch)
@@ -2379,6 +2380,140 @@ class Trainer(TrainerBase):
                                     self.opts.weight_decay))
         return optimizer_grouped_parameters
 
+    def build_pseudo_dataloader(self, pseudo_data, num_batch_per_epoch):
+        '''
+        Load train datasets
+        '''
+        if isinstance(pseudo_data, DataLoader):
+            return pseudo_data
+        elif isinstance(pseudo_data, Dataset):
+            batch_size = len(pseudo_data) // num_batch_per_epoch
+            sampler = RandomSampler(pseudo_data) if not hasattr(pseudo_data, 'sampler') else pseudo_data.sampler
+            collate_fn = pseudo_data.collate_fn if hasattr(pseudo_data, 'collate_fn') else None
+            data_loader = DataLoader(pseudo_data,
+                                     sampler=sampler,
+                                     batch_size=batch_size,
+                                     collate_fn=collate_fn,
+                                     drop_last=self.opts.drop_last,
+                                     num_workers=self.opts.num_workers)
+            return data_loader
+        else:
+            raise TypeError("train_data type{} not support".format(type(pseudo_data)))
+
+    def train_step(self, step, batch, batch_pl=None, pseudo_weight=1.0):
+        outputs = self.train_forward(batch)
+        outputs_pl = self.train_forward(batch_pl) \
+            if batch_pl is not None and pseudo_weight > 0.0 else {"loss": 0.0}
+        loss = outputs['loss'] + outputs_pl["loss"] * pseudo_weight
+        self.train_backward(loss)
+        should_save = False
+        should_logging = False
+        if self.opts.adv_enable:
+            self.train_adv(batch)
+        if (step + 1) % self.gradient_accumulation_steps == 0 or (
+                self.steps_in_epoch <= self.gradient_accumulation_steps
+                and (step + 1) == self.steps_in_epoch
+        ):
+            self.train_update()
+            should_logging = self.global_step % self.opts.logging_steps == 0
+            should_save = self.global_step % self.opts.save_steps == 0
+            self.records['loss_meter'].update(loss.item(), n=1)
+            self.writer.add_scalar('loss/train_loss', loss.item(), self.global_step)
+            if hasattr(self.scheduler, 'get_lr'):
+                self.writer.add_scalar('learningRate/train_lr', self.scheduler.get_lr()[0], self.global_step)
+            return outputs, should_logging, should_save
+        else:
+            return None, should_logging, should_save
+
+    def unlabled_weight(self, step):
+        pseudo_weight = self.opts.pseudo_weight
+        if step < self.opts.pseudo_warmup_start_step:
+            pseudo_weight = 0.0
+        elif step > self.opts.pseudo_warmup_end_step:
+            pseudo_weight = pseudo_weight
+        else:
+            coeff = (step - self.opts.pseudo_warmup_start_step) / \
+                (self.opts.pseudo_warmup_end_step - self.opts.pseudo_warmup_start_step)
+            pseudo_weight *= coeff
+        return pseudo_weight
+
+    # TODO 多机分布式训练
+    def train(self, train_data, dev_data=None, pseudo_data=None, resume_path=None, start_epoch=1, state_to_save=dict()):
+        train_dataloader = self.build_train_dataloader(train_data)
+        pseudo_dataloader = self.build_pseudo_dataloader(pseudo_data, len(train_dataloader)) \
+            if pseudo_data is not None else [None] * len(train_dataloader)
+        num_training_steps = len(train_dataloader) // self.gradient_accumulation_steps * self.num_train_epochs
+        self.steps_in_epoch = len(train_dataloader)
+        if self.scheduler is None:
+            self.scheduler = self.build_lr_scheduler(num_training_steps)
+        self.resume_from_checkpoint(resume_path=resume_path)
+        self.build_model_warp()
+        self.print_summary(len(train_data), num_training_steps)
+        self.optimizer.zero_grad()
+        seed_everything(self.opts.seed, verbose=False)  # Added here for reproductibility (even between python 2 and 3)
+        if self.opts.logging_steps < 0:
+            self.opts.logging_steps = len(train_dataloader) // self.gradient_accumulation_steps
+            self.opts.logging_steps = max(1, self.opts.logging_steps)
+        if self.opts.save_steps < 0:
+            self.opts.save_steps = len(train_dataloader) // self.gradient_accumulation_steps
+            self.opts.save_steps = max(1, self.opts.save_steps)
+        self.build_record_tracker()
+        self.reset_metrics()
+        pbar = ProgressBar(n_total=len(train_dataloader), desc='Training', num_epochs=self.num_train_epochs)
+        for epoch in range(start_epoch, int(self.num_train_epochs) + 1):
+            pbar.epoch(current_epoch=epoch)
+            for step, (batch, batch_pl) in enumerate(zip(train_dataloader, pseudo_dataloader)):
+                outputs, should_logging, should_save = self.train_step(
+                    step, batch, batch_pl, self.unlabled_weight(step))
+                if outputs is not None:
+                    if self.opts.ema_enable:
+                        self.model_ema.update(self.model)
+                    pbar.step(step, {'loss': outputs['loss'].item()})
+                if (self.opts.logging_steps > 0 and self.global_step > 0) and \
+                        should_logging and self.opts.evaluate_during_training:
+                    self.evaluate(dev_data)
+                    if self.opts.ema_enable and self.model_ema is not None:
+                        self.evaluate(dev_data, prefix_metric='ema')
+                    if hasattr(self.writer, 'save'):
+                        self.writer.save()
+                if (self.opts.save_steps > 0 and self.global_step > 0) and should_save:
+                    # model checkpoint
+                    if self.model_checkpoint:
+                        state = self.build_state_object(**state_to_save)
+                        if self.opts.evaluate_during_training:
+                            if self.model_checkpoint.monitor not in self.records['result']:
+                                msg = ("There were expected keys in the eval result: "
+                                    f"{', '.join(list(self.records['result'].keys()))}, "
+                                    f"but get {self.model_checkpoint.monitor}."
+                                    )
+                                raise TypeError(msg)
+                            self.model_checkpoint.step(
+                                state=state,
+                                current=self.records['result'][self.model_checkpoint.monitor]
+                            )
+                        else:
+                            self.model_checkpoint.step(
+                                state=state,
+                                current=None
+                            )
+
+            # early_stopping
+            if self.early_stopping:
+                if self.early_stopping.monitor not in self.records['result']:
+                    msg = ("There were expected keys in the eval result: "
+                           f"{', '.join(list(self.records['result'].keys()))}, "
+                           f"but get {self.early_stopping.monitor}."
+                           )
+                    raise TypeError(msg)
+                self.early_stopping.step(
+                    current=self.records['result'][self.early_stopping.monitor])
+                if self.early_stopping.stop_training:
+                    break
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        if self.writer:
+            self.writer.close()
+
     def evaluate(self, dev_data, prefix_metric=None, save_dir=None, save_result=False, file_name=None):
         '''
         Evaluate the model on a validation set
@@ -2563,6 +2698,11 @@ def build_opts():
         group.add_argument("--max_train_examples", type=int, default=None)
         group.add_argument("--max_eval_examples", type=int, default=None)
         group.add_argument("--max_test_examples", type=int, default=None)
+        group.add_argument("--max_pseudo_examples", type=int, default=None)
+        group.add_argument("--pseudo_input_file", type=str, default=None)
+        group.add_argument("--pseudo_weight", type=float, default=1.0)
+        group.add_argument("--pseudo_warmup_start_step", type=int, default=-1)
+        group.add_argument("--pseudo_warmup_end_step", type=int, default=-1)
         group.add_argument("--context_size", type=int, default=0)
         group.add_argument("--classifier_dropout", type=float, default=0.1)
         group.add_argument("--layer_wise_lr_decay", type=float, default=None)
@@ -2693,13 +2833,19 @@ def main(opts):
     except AssertionError:
         # XXX: AssertionError: Config has to be initialized with question_encoder and generator config
         tokenizer = tokenizer_class.from_pretrained(os.path.join(opts.pretrained_model_path, "vocab.txt"), **tokenizer_kwargs)
-    train_dataset = dev_dataset = test_dataset = None
+    train_dataset = pseudo_dataset = dev_dataset = test_dataset = None
     if opts.do_train or opts.do_check:
         train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, 
                                     max_examples=opts.max_train_examples, do_preprocess=opts.do_preprocess,
                                     )
+        if opts.pseudo_input_file is not None and not opts.do_check:
+            pseudo_dataset = load_dataset(data_class, process_class, opts.pseudo_input_file, opts.data_dir, "train",
+                                         tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length,
+                                         opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels,
+                                         max_examples=opts.max_pseudo_examples, do_preprocess=opts.do_preprocess,
+                                         )
     if (opts.do_train and opts.evaluate_during_training) or opts.do_eval:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
                                     tokenizer, opts.eval_max_seq_length, opts.context_size, opts.max_span_length,
@@ -2712,7 +2858,7 @@ def main(opts):
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, 
                                     max_examples=opts.max_test_examples, do_preprocess=opts.do_preprocess,
                                     )
-    if stanza_nlp is not None and train_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
+    if stanza_nlp is not None and train_dataset.use_cache and pseudo_dataset.use_cache and dev_dataset.use_cache and test_dataset.use_cache:
         del stanza_nlp
     opts.label2id = data_class.label2id()
     opts.id2label = data_class.id2label()
@@ -2791,7 +2937,7 @@ def main(opts):
 
     # do train
     if opts.do_train:
-        trainer.train(train_data=train_dataset, dev_data=dev_dataset, state_to_save={"vocab": tokenizer})
+        trainer.train(train_data=train_dataset, dev_data=dev_dataset, pseudo_data=pseudo_dataset, state_to_save={"vocab": tokenizer})
 
     if opts.do_eval:
         checkpoints = []

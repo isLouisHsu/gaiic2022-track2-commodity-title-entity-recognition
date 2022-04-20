@@ -4,6 +4,10 @@
 
 ## 更新
 
+### 2022/4/20
+1. `nezha-100k-spanv1-datav3-pre-lr3e-5-wd0.01-dropout0.3-span35-e6-bs32x1-sinusoidal-biaffine-awp1.0-rdrop0.3`，线上0.8091197920427468；
+2. 新增伪标签，`nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4`，线上0.813717708182999；
+
 ### 2022/4/19
 1. 以[2022/4/18](#2022418)结果作为伪标签训练，`nezha-100k-base-spanv1-datav7-pre-lr3e-5-wd0.01-dropout0.3-span35-e8-bs32x1-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线上0.8132154960622345；
 
