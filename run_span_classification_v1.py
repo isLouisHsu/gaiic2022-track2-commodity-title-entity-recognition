@@ -1638,6 +1638,7 @@ class SpanClassificationHead(nn.Module):
             spans_width_embedding,
         ], dim=-1)  # (batch_size, num_spans, num_features)
 
+        # TODO: ms-dropout
         logits = self.classifier(spans_embedding)
         if self.do_biaffine:
             logits = logits + self.bilinear(spans_start_embedding, spans_end_embedding, spans)
