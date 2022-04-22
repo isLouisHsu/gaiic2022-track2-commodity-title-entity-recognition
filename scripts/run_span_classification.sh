@@ -2376,6 +2376,7 @@ python prepare_data.py \
     --n_splits=1 \
     --seed=42
 
+# 线上0.813717708182999
 python run_span_classification_v1.py \
     --experiment_code=nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4 \
     --task_name=gaiic \
@@ -2417,5 +2418,126 @@ python run_span_classification_v1.py \
     --rdrop_weight=0.3 \
     --pseudo_input_file=pseudo.jsonl \
     --pseudo_weight=0.4 \
+    --seed=42 \
+    --fp16
+
+# B榜
+pseudo_dir=outputs/gaiic_nezha_nezha-100k-spanv1-datav3-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3/checkpoint-eval_f1_micro_all_entity-best
+python prepare_data.py \
+    --version=v6-pl \
+    --labeled_files \
+        data/raw/train_data/train.txt \
+    --pseudo_files \
+        ${pseudo_dir}/semi.0:10000.jsonl.predictions.txt \
+    --test_files \
+        data/raw/preliminary_test_b/word_per_line_preliminary_B.txt \
+    --output_dir=data/processed/ \
+    --n_splits=1 \
+    --seed=42
+# 线上0.8139140781337324 
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4 \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v6-pl/ \
+    --train_input_file=train.all.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_B.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_predict \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable \
+    --adv_epsilon=1.0 \
+    --do_rdrop \
+    --rdrop_weight=0.3 \
+    --pseudo_input_file=pseudo.jsonl \
+    --pseudo_weight=0.4 \
+    --seed=42 \
+    --fp16
+
+pseudo_dir=outputs/gaiic_nezha_nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4/checkpoint-eval_f1_micro_all_entity-best
+python prepare_data.py \
+    --version=v7-pl \
+    --labeled_files \
+        data/raw/train_data/train.txt \
+    --pseudo_files \
+        ${pseudo_dir}//word_per_line_preliminary_B.jsonl.predictions.txt \
+    --test_files \
+        data/raw/preliminary_test_b/word_per_line_preliminary_B.txt \
+    --output_dir=data/processed/ \
+    --n_splits=1 \
+    --seed=42
+# 线上0.813454025383709
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datav7-lr3e-5-wd0.01-dropout0.3-span35-e8-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4-swa \
+    --task_name=gaiic \
+    --model_type=nezha \
+    --pretrained_model_path=outputs/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=data/processed/v7-pl/ \
+    --train_input_file=train.all.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_B.jsonl \
+    --do_lower_case \
+    --output_dir=outputs/ \
+    --do_train --do_predict \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=8 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-swa_eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --max_span_length=35 \
+    --width_embedding_size=64 \
+    --label_smoothing=0.0 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --do_biaffine \
+    --adv_enable \
+    --adv_epsilon=1.0 \
+    --do_rdrop \
+    --rdrop_weight=0.3 \
+    --pseudo_input_file=pseudo.jsonl \
+    --pseudo_weight=0.4 \
+    --swa_enable \
+    --swa_start=0.75 \
+    --swa_lr=1e-6 \
+    --swa_freq=1 \
+    --swa_anneal_epochs=100 \
+    --swa_anneal_strategy=linear \
     --seed=42 \
     --fp16

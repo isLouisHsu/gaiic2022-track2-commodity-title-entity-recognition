@@ -33,6 +33,7 @@ from torch.nn import init
 from torch.nn import functional as F
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import RandomSampler
+from torch.optim.swa_utils import AveragedModel, SWALR, update_bn
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 
 from transformers import (
@@ -44,8 +45,8 @@ from transformers.file_utils import ModelOutput
 from nezha.modeling_nezha import NeZhaPreTrainedModel, NeZhaModel
 
 sys.path.append("TorchBlocks/")
-from torchblocks.callback import ProgressBar
 # from torchblocks.data.dataset import DatasetBase
+from torchblocks.callback import ProgressBar, ModelCheckpoint
 from torchblocks.data.process_base import ProcessBase
 from torchblocks.metrics.sequence_labeling.scheme import get_scheme
 from torchblocks.metrics.sequence_labeling.precision_recall_fscore import _precision_recall_fscore_support
@@ -2400,6 +2401,37 @@ class Trainer(TrainerBase):
         else:
             raise TypeError("train_data type{} not support".format(type(pseudo_data)))
 
+    def train_update(self):
+        if self.use_amp:
+            # AMP: gradients need unscaling
+            self.scaler.unscale_(self.optimizer)
+        if self.max_grad_norm is not None and self.max_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(
+                amp.master_params(self.optimizer) if self.use_apex else self.model.parameters(),
+                self.max_grad_norm)
+        optimizer_was_run = True
+        if self.use_amp:
+            scale_before = self.scaler.get_scale()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            scale_after = self.scaler.get_scale()
+            optimizer_was_run = scale_before <= scale_after
+        else:
+            self.optimizer.step()
+        # >>> SWA >>>
+        if optimizer_was_run:
+            if self.opts.swa_enable and self.global_step > self.opts.swa_start:
+                if self.swa_model.n_averaged == 0:
+                    self.logger.info(f"\nStart SWA - step {self.global_step}")
+                if self.global_step % self.opts.swa_freq == 0:
+                    self.swa_model.update_parameters(self.model)
+                self.swa_scheduler.step()
+            else:
+                self.scheduler.step()   # Update learning rate schedule
+        # <<< SWA <<<
+        self.model.zero_grad()  # Reset gradients to zero
+        self.global_step += 1
+
     def train_step(self, step, batch, batch_pl=None, pseudo_weight=1.0):
         outputs = self.train_forward(batch)
         outputs_pl = self.train_forward(batch_pl) \
@@ -2448,6 +2480,37 @@ class Trainer(TrainerBase):
             self.scheduler = self.build_lr_scheduler(num_training_steps)
         self.resume_from_checkpoint(resume_path=resume_path)
         self.build_model_warp()
+        # >>> SWA >>>
+        self.swa_train_data = None
+        self.swa_model = None
+        self.swa_scheduler = None
+        self.swa_model_checkpoint = None
+        if self.opts.swa_enable:
+            self.opts.swa_start = int(self.opts.swa_start) if self.opts.swa_start > 1.0 \
+                else int(num_training_steps * self.opts.swa_start)
+            self.logger.info("Initializing SWA optimization.")
+            self.logger.info(f"swa_start = {self.opts.swa_start:d}")
+            self.logger.info(f"swa_lr = {self.opts.swa_lr:.6f}")
+            self.logger.info(f"swa_freq = {self.opts.swa_freq:d}")
+            self.logger.info(f"swa_anneal_epochs = {self.opts.swa_anneal_epochs:d}")
+            self.logger.info(f"swa_anneal_strategy = {self.opts.swa_anneal_strategy:s}")
+            self.swa_train_data = self.build_train_dataloader(train_data)
+            self.swa_model = AveragedModel(self.model)
+            self.swa_scheduler = SWALR(
+                self.optimizer,
+                swa_lr=self.opts.swa_lr,
+                anneal_epochs=self.opts.swa_anneal_epochs,
+                anneal_strategy=self.opts.swa_anneal_strategy,
+            )
+            self.swa_model_checkpoint = ModelCheckpoint(
+                mode=self.opts.checkpoint_mode,
+                monitor=f"swa_{self.opts.checkpoint_monitor}",
+                ckpt_dir=self.opts.output_dir,
+                verbose=self.opts.checkpoint_verbose,
+                save_best=self.opts.checkpoint_save_best,
+                keys_to_ignore_on_save=self.keys_to_ignore_on_checkpoint_save
+            )
+        # <<< SWA <<<
         self.print_summary(len(train_data), num_training_steps)
         self.optimizer.zero_grad()
         seed_everything(self.opts.seed, verbose=False)  # Added here for reproductibility (even between python 2 and 3)
@@ -2464,7 +2527,7 @@ class Trainer(TrainerBase):
             pbar.epoch(current_epoch=epoch)
             for step, (batch, batch_pl) in enumerate(zip(train_dataloader, pseudo_dataloader)):
                 outputs, should_logging, should_save = self.train_step(
-                    step, batch, batch_pl, self.unlabled_weight(step))
+                    step, batch, batch_pl, self.unlabled_weight(self.global_step))
                 if outputs is not None:
                     if self.opts.ema_enable:
                         self.model_ema.update(self.model)
@@ -2474,6 +2537,13 @@ class Trainer(TrainerBase):
                     self.evaluate(dev_data)
                     if self.opts.ema_enable and self.model_ema is not None:
                         self.evaluate(dev_data, prefix_metric='ema')
+                    # >>> SWA >>>
+                    if self.opts.swa_enable and self.swa_model is not None and self.swa_model.n_averaged > 0:
+                        update_bn(self.swa_train_data, self.swa_model, device=self.swa_model.module.device)
+                        model, self.model = self.model, self.swa_model
+                        self.evaluate(dev_data, prefix_metric='swa', reset_records=False)
+                        self.model = model; del model
+                    # <<< SWA <<<
                     if hasattr(self.writer, 'save'):
                         self.writer.save()
                 if (self.opts.save_steps > 0 and self.global_step > 0) and should_save:
@@ -2496,7 +2566,33 @@ class Trainer(TrainerBase):
                                 state=state,
                                 current=None
                             )
-
+                    # >>> SWA >>>
+                    if self.opts.swa_enable and self.swa_model is not None and self.swa_model.n_averaged > 0:
+                        state = {
+                            "model": self.swa_model.module,
+                            "opts": self.opts,
+                            "global_step": self.global_step,
+                        }
+                        for key, value in state_to_save.items():
+                            if key not in state:
+                                state[key] = value
+                        if self.opts.evaluate_during_training:
+                            if self.swa_model_checkpoint.monitor not in self.records['result']:
+                                msg = ("There were expected keys in the eval result: "
+                                    f"{', '.join(list(self.records['result'].keys()))}, "
+                                    f"but get {self.swa_model_checkpoint.monitor}."
+                                    )
+                                raise TypeError(msg)
+                            self.swa_model_checkpoint.step(
+                                state=state,
+                                current=self.records['result'][self.swa_model_checkpoint.monitor]
+                            )
+                        else:
+                            self.swa_model_checkpoint.step(
+                                state=state,
+                                current=None
+                            )
+                    # <<< SWA <<<
             # early_stopping
             if self.early_stopping:
                 if self.early_stopping.monitor not in self.records['result']:
@@ -2514,18 +2610,18 @@ class Trainer(TrainerBase):
         if self.writer:
             self.writer.close()
 
-    def evaluate(self, dev_data, prefix_metric=None, save_dir=None, save_result=False, file_name=None):
+    def evaluate(self, dev_data, prefix_metric=None, save_dir=None, save_result=False, file_name=None, reset_records=True):
         '''
         Evaluate the model on a validation set
         '''
         all_batch_list = []
         eval_dataloader = self.build_eval_dataloader(dev_data)
-        self.build_record_tracker()
+        if reset_records: self.build_record_tracker()
         pbar = ProgressBar(n_total=len(eval_dataloader), desc='Evaluating')
         for step, batch in enumerate(eval_dataloader):
             batch = self.predict_forward(batch)
             if batch.get('loss'):
-                self.records['loss_meter'].update(batch['loss'], n=1)
+                self.records['loss_meter'].update(batch['loss'], n=1)   # XXX: loss未通过`prefix_metric`区分
 
             groundtruths = batch["groundtruths"]
             start_index = eval_dataloader.batch_size * step
@@ -2693,33 +2789,21 @@ def build_opts():
         parser = Argparser.get_training_parser()
         group = parser.add_argument_group(title="user-defined", description="user-defined")
         group.add_argument("--do_check", action="store_true")
+        group = parser.add_argument_group(title="data-related", description="data-related")
         group.add_argument("--do_ref_tokenize", action="store_true")
+        group.add_argument("--do_preprocess", action="store_true")
+        group.add_argument("--context_size", type=int, default=0)
+        group.add_argument("--negative_sampling", type=float, default=0.0)
         group.add_argument("--labels", nargs="+", type=str, default=None)
         group.add_argument("--max_train_examples", type=int, default=None)
         group.add_argument("--max_eval_examples", type=int, default=None)
         group.add_argument("--max_test_examples", type=int, default=None)
-        group.add_argument("--max_pseudo_examples", type=int, default=None)
-        group.add_argument("--pseudo_input_file", type=str, default=None)
-        group.add_argument("--pseudo_weight", type=float, default=1.0)
-        group.add_argument("--pseudo_warmup_start_step", type=int, default=-1)
-        group.add_argument("--pseudo_warmup_end_step", type=int, default=-1)
-        group.add_argument("--context_size", type=int, default=0)
+        group = parser.add_argument_group(title="model-related", description="model-related")
         group.add_argument("--classifier_dropout", type=float, default=0.1)
-        group.add_argument("--layer_wise_lr_decay", type=float, default=None)
-        group.add_argument("--use_last_n_layers", type=int, default=None)
-        group.add_argument("--agg_last_n_layers", type=str, default="mean")
-        group.add_argument("--negative_sampling", type=float, default=0.0)
         group.add_argument("--max_span_length", type=int, default=30)
         group.add_argument("--width_embedding_size", type=int, default=128)
-        group.add_argument("--do_preprocess", action="store_true")
-        group.add_argument("--loss_type", type=str, default="lsr", choices=["ce", "lsr", "focal"])
-        group.add_argument("--label_smoothing", type=float, default=0.0)
-        group.add_argument("--focal_gamma", type=float, default=2.0)
-        group.add_argument("--focal_alpha", type=float, default=0.25)
-        group.add_argument("--do_rdrop", action="store_true")
-        group.add_argument("--rdrop_weight", type=float, default=0.3)
-        group.add_argument("--decode_thresh", type=float, default=0.0)
         group.add_argument("--extract_method", type=str, default="endpoint")
+        group.add_argument("--decode_thresh", type=float, default=0.0)
         group.add_argument("--find_best_decode_thresh", action="store_true")
         group.add_argument("--use_sinusoidal_width_embedding", action="store_true")
         group.add_argument("--do_lstm", action="store_true")
@@ -2730,8 +2814,32 @@ def build_opts():
         group.add_argument("--do_biaffine", action="store_true")
         group.add_argument("--use_syntactic", action="store_true")
         group.add_argument("--syntactic_upos_size", type=int, default=21)
+        group.add_argument("--use_last_n_layers", type=int, default=None)
+        group.add_argument("--agg_last_n_layers", type=str, default="mean")
         group.add_argument("--mc_dropout_rate", type=float, default=None)
         group.add_argument("--mc_dropout_times", type=int, default=None)
+        group.add_argument("--layer_wise_lr_decay", type=float, default=None)
+        group = parser.add_argument_group(title="loss function-related", description="loss function-related")
+        group.add_argument("--loss_type", type=str, default="lsr", choices=["ce", "lsr", "focal"])
+        group.add_argument("--label_smoothing", type=float, default=0.0)
+        group.add_argument("--focal_gamma", type=float, default=2.0)
+        group.add_argument("--focal_alpha", type=float, default=0.25)
+        group = parser.add_argument_group(title="R-Drop", description="R-Drop")
+        group.add_argument("--do_rdrop", action="store_true")
+        group.add_argument("--rdrop_weight", type=float, default=0.3)
+        group = parser.add_argument_group(title="pseudo label", description="pseudo label")
+        group.add_argument("--max_pseudo_examples", type=int, default=None)
+        group.add_argument("--pseudo_input_file", type=str, default=None)
+        group.add_argument("--pseudo_weight", type=float, default=1.0)
+        group.add_argument("--pseudo_warmup_start_step", type=int, default=-1)
+        group.add_argument("--pseudo_warmup_end_step", type=int, default=-1)
+        group = parser.add_argument_group(title="swa", description="Stochastic Weight Averaging (SWA)")
+        group.add_argument("--swa_enable", action="store_true")
+        group.add_argument("--swa_start", type=float, default=0.75)
+        group.add_argument("--swa_lr", type=float, default=1e-6)
+        group.add_argument("--swa_freq", type=int, default=1)
+        group.add_argument("--swa_anneal_epochs", type=int, default=100)
+        group.add_argument("--swa_anneal_strategy", type=str, default="cos", choices=["cos", "linear"])
         opts = parser.parse_args_from_parser(parser)
 
     # TODO: for debug
@@ -3006,7 +3114,7 @@ def main(opts):
             checkpoint = os.path.join(opts.output_dir, opts.checkpoint_predict_code)
             check_dir(checkpoint)
             checkpoints.append(checkpoint)
-        logger.info("Evaluate the following checkpoints: %s", checkpoints)
+        logger.info("Predict the following checkpoints: %s", checkpoints)
         for checkpoint in checkpoints:
             prefix = checkpoint.split("/")[-1]
             model = model_class.from_pretrained(checkpoint, config=config)

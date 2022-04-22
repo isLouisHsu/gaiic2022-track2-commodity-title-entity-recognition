@@ -4,6 +4,10 @@
 
 ## 更新
 
+### 2022/4/21
+1. `nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4`，B榜，线上0.8139140781337324；
+2. `nezha-100k-spanv1-datav7-lr3e-5-wd0.01-dropout0.3-span35-e8-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4-swa`，利用B榜结果作伪标签，并加入SWA，线上0.813454025383709
+
 ### 2022/4/20
 1. `nezha-100k-spanv1-datav3-pre-lr3e-5-wd0.01-dropout0.3-span35-e6-bs32x1-sinusoidal-biaffine-awp1.0-rdrop0.3`，线上0.8091197920427468；
 2. 新增伪标签，`nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4`，线上0.813717708182999；
