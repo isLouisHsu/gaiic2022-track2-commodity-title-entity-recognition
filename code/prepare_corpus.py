@@ -35,6 +35,7 @@ if __name__ == "__main__":
     for example in chain(
         generate_examples("../data/contest_data/train_data/train.txt"),
         generate_examples("../data/contest_data/preliminary_test_a/word_per_line_preliminary_A.txt"),
+        generate_examples("../data/contest_data/preliminary_test_b/word_per_line_preliminary_B.txt"),
         generate_examples_from_lines("../data/contest_data/train_data/unlabeled_train_data.txt"),
     ):
         text = "".join(example[1]["tokens"])

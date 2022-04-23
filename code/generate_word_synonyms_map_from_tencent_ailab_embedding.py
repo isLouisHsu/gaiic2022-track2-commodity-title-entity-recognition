@@ -7,7 +7,8 @@ from gensim.models import KeyedVectors
 from prepare_data import create_examples, generate_examples
 
 #%%
-wv_file = "/home/louishsu/NewDisk/Garage/weights/gensim/tencent-ailab-embedding-zh-d200-v0.2.0-s/tencent-ailab-embedding-zh-d200-v0.2.0-s.txt"
+# wv_file = "/home/louishsu/NewDisk/Garage/weights/gensim/tencent-ailab-embedding-zh-d200-v0.2.0-s/tencent-ailab-embedding-zh-d200-v0.2.0-s.txt"
+wv_file = "../data/tmp_data/tencent-ailab-embedding-zh-d200-v0.2.0-s.txt"
 wv_from_text = KeyedVectors.load_word2vec_format(wv_file, binary=False)
 
 # %%
@@ -34,5 +35,5 @@ for word in tqdm(words, total=len(words)):
     word_synonyms_map[word].extend(synonyms)
 
 #%%
-with open("data/word_synonyms_map.wv.json", "w") as f:
+with open("../data/tmp_data/word_synonyms_map.wv.json", "w") as f:
     json.dump(word_synonyms_map, f, ensure_ascii=False, indent=4)

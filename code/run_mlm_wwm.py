@@ -26,6 +26,8 @@ import sys
 import json
 import math
 import jieba
+import torch
+import random
 import logging
 import warnings
 from typing import *
@@ -72,6 +74,25 @@ MODEL_CLASSES = {
 }
 MODEL_TYPES = tuple(MODEL_CLASSES.keys())
 
+WORD_SYNONYMS_MAP_FILE = "../data/tmp_data/word_synonyms_map.wv.json"
+word_synonyms_map = None    # 单例
+def get_synonym(word, default=None, invariable_length=False):
+    global word_synonyms_map
+    if word_synonyms_map is None:
+        logging.info(f"Initializing word_synonyms_map...")
+        with open(WORD_SYNONYMS_MAP_FILE, "r") as f:
+            word_synonyms_map = json.load(f)
+    synonyms = word_synonyms_map.get(word, [])
+    if invariable_length:
+        synonyms = [
+            [synonym, score] for synonym, score in synonyms 
+            if len(synonym) == len(word) and is_chinese(synonym)
+        ]
+    if len(synonyms) == 0:
+        if default: return default
+        return None
+    synonym = random.choice(synonyms)[0]
+    return synonym
 
 @dataclass
 class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
@@ -103,14 +124,27 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
         if self.mlm_as_correction:
             batch_synonyms = []
             for input_ids in batch_input:
-                synonym_ids = input_ids.clone()
-                # special_tokens_mask = self.tokenizer.get_special_tokens_mask(synonym_ids)
-                tokens = self.tokenizer.convert_ids_to_tokens(synonym_ids)
-                string = self.tokenizer.convert_tokens_to_string(tokens[1:-1])
-                synonyms = [self._synonym(word) for word in jieba.cut(string)]
-                synonym_ids = self.tokenizer("".join(synonyms))
-                assert len(synonym_ids) == len(input_ids)
+                try:
+                    input_length = torch.sum(input_ids != self.tokenizer.pad_token_id)
+                    tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
+                    tokens = tokens[: input_length][1: -1]
+                    string = self.tokenizer.convert_tokens_to_string(tokens)
+                    words = jieba.lcut(string)
+                    synonyms = [self._synonym(word) for word in words]
+                    synonym_ids = self.tokenizer(
+                        "".join(synonyms),
+                        padding="max_length", 
+                        truncation=True, 
+                        max_length=input_ids.size(-1),
+                        return_tensors="pt"
+                    )["input_ids"][0]
+                    assert synonym_ids.size(0) == input_ids.size(0) and \
+                        torch.sum(synonym_ids != self.tokenizer.pad_token_id) == input_length
+                except:
+                    logger.info(f"MLM as correction Error, use `random_ids` as `synonym_ids`")
+                    synonym_ids = torch.randint(len(self.tokenizer), input_ids.shape, dtype=torch.long)
                 batch_synonyms.append(synonym_ids)
+            batch_synonyms = torch.stack(batch_synonyms, dim=0)
 
         mask_labels = []
         for e in examples:
@@ -195,8 +229,8 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
 
         # prepare
         ngrams = np.arange(1, self.max_ngram + 1, dtype=np.int64)
-        pvals = 1. / np.arange(1, self.max_ngram + 1)   # SpanBERT
-        # pvals = np.arange(self.max_ngram, 0, -1) * 1.   # MacBERT
+        # pvals = 1. / np.arange(1, self.max_ngram + 1)   # SpanBERT
+        pvals = np.arange(self.max_ngram, 0, -1) * 1.   # MacBERT
         pvals /= pvals.sum(keepdims=True)
         cand_ngram_indexes = []
         for idx in range(len(cand_indexes)):
@@ -253,8 +287,10 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
     def _synonym(self, word):
         if not is_chinese(word):
             return word
-        raise NotImplementedError
-        synonym = word  # TODO:
+        # 尝试获取同义词，若不存在同义词，则返回原词
+        synonym = get_synonym(word, invariable_length=True)
+        if synonym is None:
+            return word
         assert len(synonym) == len(word)
         return synonym
 
@@ -712,6 +748,6 @@ if __name__ == "__main__":
 #         tokenizer=tokenizer, 
 #         mlm_probability=0.15, 
 #         max_ngram=4, 
-#         # mlm_as_correction=False,
+#         mlm_as_correction=True,
 #     )
 #     data_collator(examples)

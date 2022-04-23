@@ -4,6 +4,16 @@
 
 ## 更新
 
+### 2022/4/23
+1. 按规范整理代码结构，并提交；
+2. 搭建复赛基线(10折，无伪标签，初赛最优参数)，`ezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8131；
+3. 尝试MAC预训练：
+   - 添加初赛B榜测试集数据（10k条）
+   - 最短文本10，训练集比例0.95，总计1059869条
+   - 用ltp分词
+   - MacBERT(4-gram + mlm_as_correction)
+   - 调整超参数，无warmup
+
 ### 2022/4/21
 1. `nezha-100k-spanv1-datav6-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4`，B榜，线上0.8139140781337324；
 2. `nezha-100k-spanv1-datav7-lr3e-5-wd0.01-dropout0.3-span35-e8-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3-pseu0.4-swa`，利用B榜结果作伪标签，并加入SWA，线上0.813454025383709

@@ -243,3 +243,77 @@ python run_mlm_wwm.py \
     --save_total_limit=20 \
     --dataloader_num_workers=4 \
     --seed=42
+
+version=pretrain-v1
+python prepare_corpus.py \
+    --version=${version} \
+    --output_dir=data/processed/ \
+    --min_length=0 \
+    --max_length=128 \
+    --train_ratio=0.9 \
+    --seed=42
+
+# Stage2
+# - 添加初赛B榜测试集数据（10k条）
+# - 最短文本10，训练集比例0.95
+# - 用ltp分词
+# - MacBERT(n-gram + mlm_as_correction)
+# - 调整超参数，无warmup
+version=pretrain-v2
+python prepare_corpus.py \
+    --version=${version} \
+    --output_dir=../data/tmp_data/ \
+    --min_length=10 \
+    --max_length=128 \
+    --train_ratio=0.95 \
+    --seed=42
+for data_type in train valid
+do
+python run_chinese_ref.py \
+    --file_name=../data/tmp_data/${version}/corpus.${data_type}.txt \
+    --ltp=/home/louishsu/NewDisk/Garage/weights/ltp/base1.tgz \
+    --bert=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/vocab.txt \
+    --seg_save_path=../data/tmp_data/${version}/seg.${data_type}.txt \
+    --ref_save_path=../data/tmp_data/${version}/ref.${data_type}.txt
+done
+
+python generate_word_synonyms_map_from_tencent_ailab_embedding.py   # 近义词字典
+
+export WANDB_DISABLED=true
+data_dir=../data/tmp_data/pretrain-v2
+version=nezha-cn-base-mac-seq128-lr2e-5-mlm0.15-4gram-100k-bs64x2
+python run_mlm_wwm.py \
+    --model_type=nezha \
+    --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
+    --train_file=${data_dir}/corpus.train.txt \
+    --validation_file=${data_dir}/corpus.valid.txt \
+    --train_ref_file=${data_dir}/ref.train.txt \
+    --validation_ref_file=${data_dir}/ref.valid.txt \
+    --cache_dir=cache/ \
+    --overwrite_cache \
+    --max_seq_length=128 \
+    --preprocessing_num_workers=8 \
+    --mlm_probability=0.15 \
+    --max_ngram=4 \
+    --mlm_as_correction \
+    --output_dir=outputs/${version}/ \
+    --do_train --do_eval \
+    --warmup_steps=0 \
+    --max_steps=100000 \
+    --evaluation_strategy=steps \
+    --eval_steps=5000 \
+    --per_device_train_batch_size=64 \
+    --per_device_eval_batch_size=64 \
+    --gradient_accumulation_steps=2 \
+    --label_smoothing_factor=0.0 \
+    --learning_rate=2e-5 \
+    --weight_decay=0.01 \
+    --logging_dir=outputs/${version}/log/ \
+    --logging_strategy=steps \
+    --logging_steps=5000 \
+    --save_strategy=steps \
+    --save_steps=5000 \
+    --save_total_limit=20 \
+    --dataloader_num_workers=4 \
+    --seed=42 \
+    --fp16

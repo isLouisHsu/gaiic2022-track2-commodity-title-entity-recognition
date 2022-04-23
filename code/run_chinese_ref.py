@@ -78,6 +78,7 @@ def add_sub_symbol(bert_tokens: List[str], chinese_word_set: set()):
 
 def prepare_ref(lines: List[str], ltp_tokenizer: LTP, bert_tokenizer: BertTokenizerZh):
     seg_res = []
+    print(f"Using {'ltp' if ltp_tokenizer is not None else 'jieba'}")
     for i in trange(0, len(lines), 100):
         if ltp_tokenizer is not None:
             # ltp
