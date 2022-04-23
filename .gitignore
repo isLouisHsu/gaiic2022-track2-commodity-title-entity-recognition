@@ -1,9 +1,11 @@
 *.pyc
 .vscode/
-data/processed/*
-data/raw/*
-data/word_synonyms_map.wv.json
-outputs/*
-submissions/*
-nohup.out
+data/best_model/*
+data/contest_data/*
+data/model_data/*
+data/pretrain_model/*
+data/public_data/*
+data/submission/*
+data/tmp_data/*
+code/nohup.out
 !.gitkeep
