@@ -1,3 +1,6 @@
 [submodule "TorchBlocks"]
 	path = TorchBlocks
 	url = git@github.com:lonePatient/TorchBlocks.git
+[submodule "code/TorchBlocks"]
+	path = code/TorchBlocks
+	url = git@github.com:isLouisHsu/TorchBlocks.git
