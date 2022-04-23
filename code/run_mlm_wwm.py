@@ -112,6 +112,13 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
     max_ngram: int = 1
     mlm_as_correction: bool = False
 
+    def __post_init__(self):
+        super().__post_init__()
+        self.example_count = 0
+        self.chinese_tokens = [
+            k for k in self.tokenizer.vocab.keys() if is_chinese(k)
+        ]
+
     def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
         if isinstance(examples[0], (dict, BatchEncoding)):
             input_ids = [e["input_ids"] for e in examples]
@@ -140,7 +147,8 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
                     )["input_ids"][0]
                     assert synonym_ids.size(0) == input_ids.size(0) and \
                         torch.sum(synonym_ids != self.tokenizer.pad_token_id) == input_length
-                except:
+                except Exception as e:
+                    logger.info(e)
                     logger.info(f"MLM as correction Error, use `random_ids` as `synonym_ids`")
                     synonym_ids = torch.randint(len(self.tokenizer), input_ids.shape, dtype=torch.long)
                 batch_synonyms.append(synonym_ids)
@@ -163,6 +171,17 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
             mask_labels.append(self._whole_word_mask(ref_tokens))
         batch_mask = _torch_collate_batch(mask_labels, self.tokenizer, pad_to_multiple_of=self.pad_to_multiple_of)
         inputs, labels = self.torch_mask_tokens(batch_input, batch_mask, batch_synonyms)
+
+        if self.example_count < 5: # for debug
+            for a, b in zip(inputs, labels):
+                a = self.tokenizer.convert_ids_to_tokens(a)
+                b = self.tokenizer.convert_ids_to_tokens(b)
+                s = f"#{self.example_count}\t" + " ".join(f"{i}/{j if j != self.tokenizer.unk_token else '_'}" for i, j in zip(a, b))
+                logger.info(s)
+                self.example_count += 1
+                if self.example_count > 5:
+                    break
+
         return {"input_ids": inputs, "labels": labels}
 
     def torch_mask_tokens(self, inputs: Any, mask_labels: Any, candidates: Any = None) -> Tuple[Any, Any]:
@@ -287,10 +306,11 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
     def _synonym(self, word):
         if not is_chinese(word):
             return word
-        # 尝试获取同义词，若不存在同义词，则返回原词
+        # 尝试获取同义词，若不存在同义词，则返回随机
         synonym = get_synonym(word, invariable_length=True)
         if synonym is None:
-            return word
+            synonym = "".join(np.random.choice(
+                self.chinese_tokens, size=len(word)))
         assert len(synonym) == len(word)
         return synonym
 
@@ -680,74 +700,75 @@ def _mp_fn(index):
 
 if __name__ == "__main__":
     main()
+    exit(0)
 
-# if __name__ == "__main__":
-#     import os
-#     from run_chinese_ref import prepare_ref
-#     from tokenization_bert_zh import BertTokenizerZh
+if __name__ == "__main__":
+    import os
+    from run_chinese_ref import prepare_ref
+    from tokenization_bert_zh import BertTokenizerZh
 
-#     corpus = \
-#         """
-#         OPPO闪充充电器 X9070 X9077 R5 快充头通用手机数据线 套餐【2.4充电头+数据线 】 安卓 1.5m
-#         OWIN净水器家用厨房欧恩科技反渗透纯水机O-50CSC
-#         教学教具磁条贴磁性条背胶(3M)软磁条 黑板软磁铁贴吸铁石磁贴片 宽50x厚1.5mm 1件=2米
-#         【限时促销】笔记本文具创意复古古风本子线装记事本学生小清新彩页日记本 寒江吟
-#         20本装a5笔记本子文具学生B5软抄本子记事本日记本软面抄批发简约加厚商务工作大学生笔记本办公用品手 大号B5-80张【10本装】随机颜色
-#         小米黑鲨2代钢化膜2pro电竞游戏专用二代手机保护膜全屏磨砂贴膜3代por黑沙2p防指纹抗蓝光玻璃防黑鲨2代Pro-KPL游戏膜【超清款】单片装4
-#         新款蜡烛香薰机家用迷你加湿器智能家居 磨砂灰 英规适配器
-#         冷藏展示柜保鲜柜立式单门双门商用冰柜超市冰箱冷柜饮料柜 三门豪华铝合金款（风冷无霜1200GLF）
-#         新科广场舞播放器音响户外大音量便携式小型手提拉杆移动蓝牙音箱低音炮大功率超大带无线话筒演出家用K歌 M100户外音响+有线话筒+16G优盘
-#         听雨轩80支装中性笔芯0.5mm全针管水笔芯0.38学生用考试黑色笔芯女签字替芯办公教师碳素蓝色水文 80支经典(蓝色0.5mm)
-#         神舟战神Z8-CR7N1游戏笔记本外壳保护贴膜15.6英寸电脑机身炫彩贴纸Z8-CT7N DIY来图定制/发图给客服/备注图代号 ABC面+磨砂防反光屏幕膜+键盘膜
-#         惠普暗影精灵4键盘膜15.6寸笔记本键盘贴纸按键贴光影精灵4代pro plus 2/3代银河舰队畅游 暗影精灵4代pro （透明轻薄专用TPU键盘膜）
-#         2020新版考研答题卡英语一二数学一二政治联考答题卡纸 自命题(课)B卡
-#         龙视安500万poe监控器设备套装高清网络摄像头一体机商用室外工厂 无 20路
-#         爱普生（EPSON）投影仪 办公商务 高清高亮度 大型工程投影机 CB-G7800（8000流明 标清XGA）官方标配
-#         MECHENA5可外放mp3mp4音乐播放器学生随身听女生款超薄便携式p3插卡有屏p4学英语mp6深空灰8G外放版+蓝牙
-#         韩版创意文具糖果包装点心蛋糕造型橡皮擦幼儿园节日奖品开学礼物 1641糖果袋橡皮
-#         1.5米德国进口榉木画架木制支架式画板架写生油画架广告架1.7实木素描架套装楼盘木质展览架展示架多功 1.5米榉木画架+2K画板
-#         小米手环2/3/4腕带替换带3代4代金属手环带链式不锈钢防水智能运动真皮表带二代手环4NFC版男女款 【三珠加强款-黑色】 小米手环2腕带
-#         20本餐馆餐饮饭店点菜单一联单层二联三联点菜本无碳复写开单本点单本不复写2联3联加饭店菜单记账单 (20本常规)1联/每本40张/不复写
-#         长虹同款3节能省电大厦式取暖器家用宿舍立式摇头电暖器 大厦2
-#         毛笔字帖水写布文房四宝毛笔套装水写字帖书法练习仿宣纸初学者毛笔高档礼品文具套装小学生成人书法字帖精 中国红套装
-#         4本加厚笔记本子学生课堂笔记本日记本作业本记事本子韩版小清新好看的本子女生款少女心 A5线圈4本/60张/樱花之夏
-#         Sonoely 手机壳360°全包防摔PC保护套薄外壳 适用于vivox9s/X20/X21/R15 深邃蓝 华为P20
-#         Choseal秋叶原qs8113 hdmi线高清线2.0版数据线4k高清线电脑电视数据连接线3D电视入门级 12米
-#         索歌（SUOGE）鸭脖保鲜柜风冷鸭货展示柜冷藏熟食柜水果卤菜凉菜冒菜烧烤展示柜卧式商用大理石点菜柜 大理石直角【风冷款】【送除雾加湿器】1.2米【进口丹佛斯压缩机】
-#         华为畅享5S手机壳TAG-AL00保护套tag-t100软胶cloo防摔TL创意指环-保时捷【挂绳+指环】
-#         显示器屏增高架台式电脑办公桌面收纳底座托架抽屉创意置物架子竹 【小鹿2号爱心单抽】雕刻增高架【爱心抽屉】
-#         金正看戏机老人唱戏机高清多功能大屏幕老年广场舞视频播放器收音 19机皇护眼版+送32GU盘+送老人视频资源
-#         笔筒 简约ins北欧风金属笔筒铁艺玫瑰金笔筒 学生桌面文具收纳 办公室桌面摆件化妆品收纳桶 圆柱镂空 四方形铁艺笔筒 -浅金色
-#         圆珠笔0.7mm蓝色单支装办公学生文具用品原子笔芯按动油笔经典简约批发 60只装（笔杆颜色随机）送笔筒
-#         【非原厂物料】苹果iPhone华为手机电池屏幕上门/到店安装后壳摄像头尾插按键更换服务ipad换电池手机屏幕上门安装服务
-#         紫光唱片车载车用CD光盘黑胶CD-R音乐无损碟片空白黑胶mp3刻录盘紫光光碟黑胶片CD黑碟空白光盘空音乐风 CD5 片 + 光盘袋5 个 + 黑
-#         2020新年华为mate30手机壳女mate30Pro玻璃防摔硅胶全包个性情侣款鼠年本命年暴富手机mate30【好运连连+玻璃】送钢化膜+挂绳
-#         坚果 JmGO SU（含88英寸硬屏套餐） 4K激光电视投影仪 投影机家用 （4K超高清 2400ANSI流明 杜比音响） 
-#         安卓王者荣耀走位利器游戏手柄手机吃鸡遥控辅助器A9绝地火线 Type-C版【1条装】+供电线 其他
-#         日照鑫 镭射玫瑰和纸胶带小清新diy手账胶带日记相册装饰贴纸 5个装 圆形烫玫瑰金
-#         纠错本子考研大学生初高中生纠正科目简约错题集 橙色4本装 胡萝卜北系列
-#         """
-#     lines = [
-#         line.strip() for line in corpus.split("\n") if len(line.strip()) > 0
-#     ]
+    corpus = \
+        """
+        OPPO闪充充电器 X9070 X9077 R5 快充头通用手机数据线 套餐【2.4充电头+数据线 】 安卓 1.5m
+        OWIN净水器家用厨房欧恩科技反渗透纯水机O-50CSC
+        教学教具磁条贴磁性条背胶(3M)软磁条 黑板软磁铁贴吸铁石磁贴片 宽50x厚1.5mm 1件=2米
+        【限时促销】笔记本文具创意复古古风本子线装记事本学生小清新彩页日记本 寒江吟
+        20本装a5笔记本子文具学生B5软抄本子记事本日记本软面抄批发简约加厚商务工作大学生笔记本办公用品手 大号B5-80张【10本装】随机颜色
+        小米黑鲨2代钢化膜2pro电竞游戏专用二代手机保护膜全屏磨砂贴膜3代por黑沙2p防指纹抗蓝光玻璃防黑鲨2代Pro-KPL游戏膜【超清款】单片装4
+        新款蜡烛香薰机家用迷你加湿器智能家居 磨砂灰 英规适配器
+        冷藏展示柜保鲜柜立式单门双门商用冰柜超市冰箱冷柜饮料柜 三门豪华铝合金款（风冷无霜1200GLF）
+        新科广场舞播放器音响户外大音量便携式小型手提拉杆移动蓝牙音箱低音炮大功率超大带无线话筒演出家用K歌 M100户外音响+有线话筒+16G优盘
+        听雨轩80支装中性笔芯0.5mm全针管水笔芯0.38学生用考试黑色笔芯女签字替芯办公教师碳素蓝色水文 80支经典(蓝色0.5mm)
+        神舟战神Z8-CR7N1游戏笔记本外壳保护贴膜15.6英寸电脑机身炫彩贴纸Z8-CT7N DIY来图定制/发图给客服/备注图代号 ABC面+磨砂防反光屏幕膜+键盘膜
+        惠普暗影精灵4键盘膜15.6寸笔记本键盘贴纸按键贴光影精灵4代pro plus 2/3代银河舰队畅游 暗影精灵4代pro （透明轻薄专用TPU键盘膜）
+        2020新版考研答题卡英语一二数学一二政治联考答题卡纸 自命题(课)B卡
+        龙视安500万poe监控器设备套装高清网络摄像头一体机商用室外工厂 无 20路
+        爱普生（EPSON）投影仪 办公商务 高清高亮度 大型工程投影机 CB-G7800（8000流明 标清XGA）官方标配
+        MECHENA5可外放mp3mp4音乐播放器学生随身听女生款超薄便携式p3插卡有屏p4学英语mp6深空灰8G外放版+蓝牙
+        韩版创意文具糖果包装点心蛋糕造型橡皮擦幼儿园节日奖品开学礼物 1641糖果袋橡皮
+        1.5米德国进口榉木画架木制支架式画板架写生油画架广告架1.7实木素描架套装楼盘木质展览架展示架多功 1.5米榉木画架+2K画板
+        小米手环2/3/4腕带替换带3代4代金属手环带链式不锈钢防水智能运动真皮表带二代手环4NFC版男女款 【三珠加强款-黑色】 小米手环2腕带
+        20本餐馆餐饮饭店点菜单一联单层二联三联点菜本无碳复写开单本点单本不复写2联3联加饭店菜单记账单 (20本常规)1联/每本40张/不复写
+        长虹同款3节能省电大厦式取暖器家用宿舍立式摇头电暖器 大厦2
+        毛笔字帖水写布文房四宝毛笔套装水写字帖书法练习仿宣纸初学者毛笔高档礼品文具套装小学生成人书法字帖精 中国红套装
+        4本加厚笔记本子学生课堂笔记本日记本作业本记事本子韩版小清新好看的本子女生款少女心 A5线圈4本/60张/樱花之夏
+        Sonoely 手机壳360°全包防摔PC保护套薄外壳 适用于vivox9s/X20/X21/R15 深邃蓝 华为P20
+        Choseal秋叶原qs8113 hdmi线高清线2.0版数据线4k高清线电脑电视数据连接线3D电视入门级 12米
+        索歌（SUOGE）鸭脖保鲜柜风冷鸭货展示柜冷藏熟食柜水果卤菜凉菜冒菜烧烤展示柜卧式商用大理石点菜柜 大理石直角【风冷款】【送除雾加湿器】1.2米【进口丹佛斯压缩机】
+        华为畅享5S手机壳TAG-AL00保护套tag-t100软胶cloo防摔TL创意指环-保时捷【挂绳+指环】
+        显示器屏增高架台式电脑办公桌面收纳底座托架抽屉创意置物架子竹 【小鹿2号爱心单抽】雕刻增高架【爱心抽屉】
+        金正看戏机老人唱戏机高清多功能大屏幕老年广场舞视频播放器收音 19机皇护眼版+送32GU盘+送老人视频资源
+        笔筒 简约ins北欧风金属笔筒铁艺玫瑰金笔筒 学生桌面文具收纳 办公室桌面摆件化妆品收纳桶 圆柱镂空 四方形铁艺笔筒 -浅金色
+        圆珠笔0.7mm蓝色单支装办公学生文具用品原子笔芯按动油笔经典简约批发 60只装（笔杆颜色随机）送笔筒
+        【非原厂物料】苹果iPhone华为手机电池屏幕上门/到店安装后壳摄像头尾插按键更换服务ipad换电池手机屏幕上门安装服务
+        紫光唱片车载车用CD光盘黑胶CD-R音乐无损碟片空白黑胶mp3刻录盘紫光光碟黑胶片CD黑碟空白光盘空音乐风 CD5 片 + 光盘袋5 个 + 黑
+        2020新年华为mate30手机壳女mate30Pro玻璃防摔硅胶全包个性情侣款鼠年本命年暴富手机mate30【好运连连+玻璃】送钢化膜+挂绳
+        坚果 JmGO SU（含88英寸硬屏套餐） 4K激光电视投影仪 投影机家用 （4K超高清 2400ANSI流明 杜比音响） 
+        安卓王者荣耀走位利器游戏手柄手机吃鸡遥控辅助器A9绝地火线 Type-C版【1条装】+供电线 其他
+        日照鑫 镭射玫瑰和纸胶带小清新diy手账胶带日记相册装饰贴纸 5个装 圆形烫玫瑰金
+        纠错本子考研大学生初高中生纠正科目简约错题集 橙色4本装 胡萝卜北系列
+        """
+    lines = [
+        line.strip() for line in corpus.split("\n") if len(line.strip()) > 0
+    ]
 
-#     model_name_or_path = "/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base"
-#     vocab_file = os.path.join(model_name_or_path, "vocab.txt")
-#     tokenizer = BertTokenizerZh.from_pretrained(vocab_file, do_ref_tokenize=False)
-#     seg_res, ref_ids = prepare_ref(lines, None, tokenizer)
+    model_name_or_path = "/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base"
+    vocab_file = os.path.join(model_name_or_path, "vocab.txt")
+    tokenizer = BertTokenizerZh.from_pretrained(vocab_file, do_ref_tokenize=False)
+    seg_res, ref_ids = prepare_ref(lines, None, tokenizer)
 
-#     tokenizer = BertTokenizerZh.from_pretrained(vocab_file, do_ref_tokenize=True)
-#     examples = [
-#         tokenizer(line, padding=False, truncation=True, max_length=128)
-#         for line in lines
-#     ]
-#     for example, refs in zip(examples, ref_ids):
-#         example["chinese_ref"] = refs
+    tokenizer = BertTokenizerZh.from_pretrained(vocab_file, do_ref_tokenize=False)
+    examples = [
+        tokenizer(line, padding=False, truncation=True, max_length=128)
+        for line in lines
+    ]
+    for example, refs in zip(examples, ref_ids):
+        example["chinese_ref"] = refs
 
-#     data_collator = DataCollatorForNGramWholeWordMask(
-#         tokenizer=tokenizer, 
-#         mlm_probability=0.15, 
-#         max_ngram=4, 
-#         mlm_as_correction=True,
-#     )
-#     data_collator(examples)
+    data_collator = DataCollatorForNGramWholeWordMask(
+        tokenizer=tokenizer, 
+        mlm_probability=0.15, 
+        max_ngram=4, 
+        mlm_as_correction=True,
+    )
+    data_collator(examples)

@@ -1981,6 +1981,8 @@ class ModelForSpanClassification(PreTrainedModel):
 
             # self.base_model.encoder(outputs["last_hidden_state"], attention_mask) # AlBert Style
 
+            # TODO: LayerPooling
+            # https://www.kaggle.com/code/rhtsingh/utilizing-transformer-representations-efficiently/notebook
             if self.config.use_last_n_layers is not None:
                 last_hidden_state = outputs["hidden_states"]
                 last_hidden_state = torch.stack(last_hidden_state[- self.config.use_last_n_layers: ], dim=-1)

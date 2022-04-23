@@ -296,7 +296,7 @@ python run_mlm_wwm.py \
     --mlm_probability=0.15 \
     --max_ngram=4 \
     --mlm_as_correction \
-    --output_dir=outputs/${version}/ \
+    --output_dir=../data/pretrain_model/${version}/ \
     --do_train --do_eval \
     --warmup_steps=0 \
     --max_steps=100000 \
@@ -308,7 +308,7 @@ python run_mlm_wwm.py \
     --label_smoothing_factor=0.0 \
     --learning_rate=2e-5 \
     --weight_decay=0.01 \
-    --logging_dir=outputs/${version}/log/ \
+    --logging_dir=../data/pretrain_model/${version}/log/ \
     --logging_strategy=steps \
     --logging_steps=5000 \
     --save_strategy=steps \
