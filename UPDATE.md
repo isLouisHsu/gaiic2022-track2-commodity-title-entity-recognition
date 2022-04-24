@@ -4,6 +4,9 @@
 
 ## 更新
 
+### 2022/4/24
+1. `~run_mlm_wwm.DataCollatorForNGramWholeWordMask`修改`mlm_as_correction`实现，但速度奇慢，待优化。
+
 ### 2022/4/23
 1. 按规范整理代码结构，并提交；
 2. 搭建复赛基线(10折，无伪标签，初赛最优参数)，`ezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8131；

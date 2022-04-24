@@ -277,7 +277,9 @@ python run_chinese_ref.py \
     --ref_save_path=../data/tmp_data/${version}/ref.${data_type}.txt
 done
 
-python generate_word_synonyms_map_from_tencent_ailab_embedding.py   # 近义词字典
+# python generate_word_synonyms_map_from_tencent_ailab_embedding.py
+# python convert_tencent_w2v_txt2bin.py
+# export SYNONYMS_WORD2VEC_BIN_MODEL_ZH_CN="../data/public_data/tencent-ailab-embedding-zh-d100-v0.2.0-s.bin"
 
 export WANDB_DISABLED=true
 data_dir=../data/tmp_data/pretrain-v2

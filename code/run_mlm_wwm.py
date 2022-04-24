@@ -111,13 +111,15 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
     """
     max_ngram: int = 1
     mlm_as_correction: bool = False
+    nearby_size: int = 20
 
     def __post_init__(self):
         super().__post_init__()
         self.example_count = 0
-        self.chinese_tokens = [
-            k for k in self.tokenizer.vocab.keys() if is_chinese(k)
-        ]
+        self.word2synonyms_map = dict()
+        if self.mlm_as_correction:
+            import synonyms
+            self.nearby = synonyms.nearby
 
     def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
         if isinstance(examples[0], (dict, BatchEncoding)):
@@ -127,38 +129,15 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
             examples = [{"input_ids": e} for e in examples]
         batch_input = _torch_collate_batch(input_ids, self.tokenizer, pad_to_multiple_of=self.pad_to_multiple_of)
 
+        mask_labels = []
         batch_synonyms = None
         if self.mlm_as_correction:
-            batch_synonyms = []
-            for input_ids in batch_input:
-                try:
-                    input_length = torch.sum(input_ids != self.tokenizer.pad_token_id)
-                    tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
-                    tokens = tokens[: input_length][1: -1]
-                    string = self.tokenizer.convert_tokens_to_string(tokens)
-                    words = jieba.lcut(string)
-                    synonyms = [self._synonym(word) for word in words]
-                    synonym_ids = self.tokenizer(
-                        "".join(synonyms),
-                        padding="max_length", 
-                        truncation=True, 
-                        max_length=input_ids.size(-1),
-                        return_tensors="pt"
-                    )["input_ids"][0]
-                    assert synonym_ids.size(0) == input_ids.size(0) and \
-                        torch.sum(synonym_ids != self.tokenizer.pad_token_id) == input_length
-                except Exception as e:
-                    logger.info(e)
-                    logger.info(f"MLM as correction Error, use `random_ids` as `synonym_ids`")
-                    synonym_ids = torch.randint(len(self.tokenizer), input_ids.shape, dtype=torch.long)
-                batch_synonyms.append(synonym_ids)
-            batch_synonyms = torch.stack(batch_synonyms, dim=0)
-
-        mask_labels = []
-        for e in examples:
-            ref_tokens = []
+            batch_synonyms = torch.randint(len(self.tokenizer), batch_input.shape, dtype=torch.long)    # 默认随机词
+        for no, e in enumerate(examples):
+            ori_tokens = []; ref_tokens = []
             for id in tolist(e["input_ids"]):
                 token = self.tokenizer._convert_id_to_token(id)
+                ori_tokens.append(token)
                 ref_tokens.append(token)
 
             # For Chinese tokens, we need extra inf to mark sub-word, e.g [喜,欢]-> [喜，##欢]
@@ -168,7 +147,32 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
                 for i in range(len_seq):
                     if i in ref_pos:
                         ref_tokens[i] = "##" + ref_tokens[i]
-            mask_labels.append(self._whole_word_mask(ref_tokens))
+
+            wwm_mask, wwm_grams = self._whole_word_mask(ref_tokens)
+            mask_labels.append(wwm_mask)
+            if self.mlm_as_correction:
+                pass    # TODO: 速度奇慢，待优化
+                # for gram in wwm_grams:
+                #     gram = sorted(gram)
+                #     tokens = [ori_tokens[i] for i in gram]
+                #     word = self.tokenizer.convert_tokens_to_string(tokens)
+                #     if not is_chinese(word):  # 中文，则尝试寻找近义词（长度相同），存在则替换
+                #         continue
+                #     if word in self.word2synonyms_map:
+                #         nearby = self.word2synonyms_map[word]
+                #     else:
+                #         nearby = self.nearby(word, size=self.nearby_size)[0]
+                #         func = lambda x: len(x) == len(tokens) and is_chinese(x) and x != word
+                #         nearby = list(filter(func, nearby))
+                #         self.word2synonyms_map[word] = nearby
+                #     if not nearby:
+                #         continue
+                #     synonym = np.random.choice(nearby)
+                #     synonym = self.tokenizer.tokenize(synonym)[0]
+                #     synonym_ids = self.tokenizer.convert_tokens_to_ids(synonym)
+                #     for idx, synonym_id in zip(gram, synonym_ids):
+                #         batch_synonyms[no][idx] = synonym_id
+
         batch_mask = _torch_collate_batch(mask_labels, self.tokenizer, pad_to_multiple_of=self.pad_to_multiple_of)
         inputs, labels = self.torch_mask_tokens(batch_input, batch_mask, batch_synonyms)
 
@@ -261,6 +265,7 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
 
         num_to_predict = min(max_predictions, max(1, int(round(len(input_tokens) * self.mlm_probability))))
         masked_lms = []
+        masked_grams = []
         covered_indexes = set()
         for ngram_index_set in cand_ngram_indexes:
             if len(masked_lms) >= num_to_predict:
@@ -277,11 +282,13 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
                 p=pvals[: len(ngram_index_set)] / \
                   pvals[: len(ngram_index_set)].sum(keepdims=True)
             )
+            gram_set = ngram_index_set[n - 1]
             index_set = sum(ngram_index_set[n - 1], [])
             n -= 1
             while len(covered_indexes) + len(index_set) > num_to_predict:
                 if n == 0:
                     break
+                gram_set = ngram_index_set[n - 1]
                 index_set = sum(ngram_index_set[n - 1], [])
                 n -= 1
             # If adding a whole-word mask would exceed the maximum number of
@@ -295,24 +302,15 @@ class DataCollatorForNGramWholeWordMask(DataCollatorForLanguageModeling):
                     break
             if is_any_index_covered:
                 continue
+            masked_grams.extend(gram_set)
             for index in index_set:
                 covered_indexes.add(index)
                 masked_lms.append(index)
 
         assert len(covered_indexes) == len(masked_lms)
         mask_labels = [1 if i in covered_indexes else 0 for i in range(len(input_tokens))]
-        return mask_labels
+        return mask_labels, masked_grams
 
-    def _synonym(self, word):
-        if not is_chinese(word):
-            return word
-        # 尝试获取同义词，若不存在同义词，则返回随机
-        synonym = get_synonym(word, invariable_length=True)
-        if synonym is None:
-            synonym = "".join(np.random.choice(
-                self.chinese_tokens, size=len(word)))
-        assert len(synonym) == len(word)
-        return synonym
 
 @dataclass
 class ModelArguments:
