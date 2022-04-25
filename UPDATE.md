@@ -4,6 +4,11 @@
 
 ## 更新
 
+### 2022/4/25
+1. 预训练，`nezha-cn-base-mac-seq128-lr2e-5-mlm0.15-4gram-100k-bs64x2`，MLM损失1.924962043762207；
+2. `macnezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8121；
+3. `nezha-100k-spanv1-datas2v0.0-lr5e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8121。
+
 ### 2022/4/24
 1. `~run_mlm_wwm.DataCollatorForNGramWholeWordMask`修改`mlm_as_correction`实现，但速度奇慢，待优化。
 
