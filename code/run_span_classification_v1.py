@@ -426,12 +426,28 @@ class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
         return ["O",] + [
             str(i + 1) for i in range(3)
         ]
+
+    @classmethod
+    def xlabel2id(cls):
+        return {label: i for i, label in enumerate(cls.get_xlabels())}
+
+    @classmethod
+    def xid2label(cls):
+        return {i: label for i, label in enumerate(cls.get_xlabels())}
     
     @classmethod
     def get_ylabels(cls) -> List[str]:
         return ["O",] + [
             str(i + 1) for i in range(18)
         ]
+
+    @classmethod
+    def ylabel2id(cls):
+        return {label: i for i, label in enumerate(cls.get_ylabels())}
+
+    @classmethod
+    def yid2label(cls):
+        return {i: label for i, label in enumerate(cls.get_ylabels())}
 
     @classmethod
     def fx(cls, label):
@@ -1664,7 +1680,6 @@ class SpanClassificationHead(nn.Module):
         if return_spans_embedding:
             return spans_embedding
 
-        # TODO: ms-dropout
         logits = self.classifier(spans_embedding)
         if self.do_biaffine:
             logits = logits + self.bilinear(spans_start_embedding, spans_end_embedding, spans)
@@ -1840,6 +1855,7 @@ class SpanClassificationLoss(nn.Module):
         ignore_index=-100
     ):
         super().__init__()
+        self.num_labels = num_labels
         self.reduction = reduction
         if loss_type == "ce":
             self.loss_fct = nn.CrossEntropyLoss( 
@@ -2188,6 +2204,159 @@ class RobertaForSpanClassification(RobertaPreTrainedModel, ModelForSpanClassific
 
 
 class NeZhaForSpanClassification(NeZhaPreTrainedModel, ModelForSpanClassification):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.bert = NeZhaModel(config)
+        self.init_weights()
+
+class SpanClassificationXYHead(SpanClassificationHead):
+
+    def __init__(self, hidden_size, num_xlabels, num_ylabels, max_span_length, width_embedding_size,
+                 do_projection=False, do_cln=False, do_biaffine=False, 
+                 do_co_attention=False, extract_method="endpoint"):
+        super().__init__(hidden_size, num_xlabels + num_ylabels, max_span_length, width_embedding_size,
+                 do_projection=do_projection, do_cln=do_cln, do_biaffine=do_biaffine, 
+                 do_co_attention=do_co_attention, extract_method=extract_method)
+
+        self.num_xlabels = num_xlabels
+        self.num_ylabels = num_ylabels
+
+    @classmethod
+    def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
+        other_id = label2id["O"]
+        import pdb; pdb.set_trace()
+        if is_logits:
+            # probas, labels = logits_or_labels.softmax(dim=-1).max(dim=-1)           # (batch_size, sequence_length)
+            # labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX), 
+            #     torch.full_like(labels, other_id), labels)
+            probas = logits_or_labels.softmax(dim=-1)
+            probas[..., other_id] = torch.where(probas[..., other_id] < thresh, 
+                torch.zeros_like(probas[..., other_id]), probas[..., other_id])
+            # probas, labels = probas.max(dim=-1) # TODO: 实体类别概率
+            _, labels = probas.max(dim=-1)
+            probas = 1 - probas[..., other_id]  # 是实体的概率
+        else:
+            probas, labels = torch.ones_like(logits_or_labels), logits_or_labels    # (batch_size, sequence_length)
+
+        batch_size = logits_or_labels.size(0)
+        labels = [[id2label.get(id, "O") for id in ids] for ids in labels.cpu().numpy().tolist()]
+        probas = probas.cpu().numpy().tolist()
+        spans = spans.cpu().numpy().tolist()
+        spans_mask = spans_mask.cpu().numpy().tolist()
+
+        decode_entities = []
+        for i in range(batch_size):
+            entities = []
+            sent_start = float("inf")
+            for span, mask, label, proba in zip(spans[i], spans_mask[i], labels[i], probas[i]):
+                if mask == 0: break
+                start, end = span       # 左闭右闭
+                sent_start = min(sent_start, start)
+                if label == "O": continue
+                start -= sent_start; end -= sent_start
+                entities.append((start, end + 1, label, proba))   # 左闭右开
+            # entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
+            # entities = cls.drop_overlap_baseline(entities)
+            entities = cls.drop_overlap_nms(entities)
+            entities = [entity[:-1] for entity in entities]
+            decode_entities.append(entities)
+
+        return decode_entities
+
+class SpanClassificationXYLoss(nn.Module):
+
+    def __init__(
+        self, 
+        num_xlabels, 
+        num_ylabels, 
+        loss_type="lsr", 
+        label_smoothing_eps=0.0, 
+        focal_gamma=2.0, 
+        focal_alpha=0.25,
+        reduction="mean", 
+        ignore_index=-100
+    ):
+        self.loss_fct_x = SpanClassificationLoss(
+            num_xlabels, 
+            loss_type=loss_type, 
+            label_smoothing_eps=label_smoothing_eps, 
+            focal_gamma=focal_gamma, 
+            focal_alpha=focal_alpha,
+            reduction=reduction, 
+            ignore_index=ignore_index
+        )
+        self.loss_fct_y = SpanClassificationLoss(
+            num_ylabels, 
+            loss_type=loss_type, 
+            label_smoothing_eps=label_smoothing_eps, 
+            focal_gamma=focal_gamma, 
+            focal_alpha=focal_alpha,
+            reduction=reduction, 
+            ignore_index=ignore_index
+        )
+
+    def forward(
+        self,
+        logits,  # (batch_size, num_spans, num_labels)
+        labels,  # (batch_size, num_spans,)
+        mask,    # (batch_size, num_spans,)
+    ):
+        num_xlabels = self.loss_fct_x.num_labels
+        num_ylabels = self.loss_fct_y.num_labels
+        import pdb; pdb.set_trace()
+        # xlabels = GaiicTrack2SpanClassificationDataset.fx(labels)
+        # ylabels = GaiicTrack2SpanClassificationDataset.fy(labels)
+        loss_x = self.loss_fct_x(logits[: num_xlabels], xlabels, mask)
+        loss_y = self.loss_fct_y(logits[: num_xlabels], ylabels, mask)
+        return loss_x + loss_y
+
+class SpanClassificationXYRDropLoss(SpanClassificationRDropLoss):
+
+    def __init__(self, num_xlabels, num_ylabels):
+        super().__init__()
+        self.num_xlabels = num_xlabels
+        self.num_ylabels = num_ylabels
+    
+    def forward(self, p, q, mask=None):
+        px, py = p[: self.num_xlabels], p[self.num_xlabels: ]
+        qx, qy = q[: self.num_xlabels], q[self.num_xlabels: ]
+        loss = super()(px, qx, mask) + super()(py, qy, mask)
+        return loss
+
+class ModelForSpanClassificationXY(ModelForSpanClassification):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.head = SpanClassificationXYHead(
+            config.hidden_size, config.num_xlabels, config.num_ylabels,
+            config.max_span_length, config.width_embedding_size,
+            config.do_projection, config.do_cln, config.do_biaffine,
+            config.do_co_attention, config.extract_method,
+        )
+
+        self.loss_fct = SpanClassificationXYLoss(
+            num_xlabels=config.num_xlabels, 
+            num_ylabels=config.num_ylabels, 
+            loss_type=config.loss_type,
+            label_smoothing_eps=config.label_smoothing,
+            focal_gamma=config.focal_gamma,
+            focal_alpha=config.focal_alpha,
+            reduction="mean",
+            ignore_index=IGNORE_INDEX,
+        )
+
+        if config.do_rdrop:
+            self.rdrop_loss_func = SpanClassificationXYRDropLoss()
+
+    @classmethod
+    def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
+        return SpanClassificationXYHead.decode(logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits)
+
+
+class NeZhaForSpanClassificationXY(NeZhaPreTrainedModel, ModelForSpanClassificationXY):
 
     def __init__(self, config):
         super().__init__(config)
@@ -2838,6 +3007,7 @@ class Trainer(TrainerBase):
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForSpanClassification, BertTokenizerZh),
     "nezha": (BertConfig, NeZhaForSpanClassification, BertTokenizerZh),
+    "nezhaxy": (BertConfig, NeZhaForSpanClassificationXY, BertTokenizerZh),
 }
 
 DATA_CLASSES = {
@@ -3041,12 +3211,20 @@ def main(opts):
     opts.label2id = data_class.label2id()
     opts.id2label = data_class.id2label()
     opts.num_labels = len(opts.label2id)
+    opts.xlabel2id = data_class.xlabel2id()
+    opts.xid2label = data_class.xid2label()
+    opts.num_xlabels = len(opts.xlabel2id)
+    opts.ylabel2id = data_class.ylabel2id()
+    opts.yid2label = data_class.yid2label()
+    opts.num_ylabels = len(opts.ylabel2id)
 
     # model
     logger.info("initializing model and config")
     config, unused_kwargs = config_class.from_pretrained(
         opts.pretrained_model_path, return_unused_kwargs=True,
         num_labels=opts.num_labels, id2label=opts.id2label, label2id=opts.label2id,
+        num_xlabels=opts.num_xlabels, xid2label=opts.xid2label, xlabel2id=opts.xlabel2id,
+        num_ylabels=opts.num_ylabels, yid2label=opts.yid2label, ylabel2id=opts.ylabel2id,
         conditional=False,
         classifier_dropout=opts.classifier_dropout, 
         layer_wise_lr_decay=opts.layer_wise_lr_decay,
