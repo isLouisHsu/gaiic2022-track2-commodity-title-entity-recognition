@@ -19,7 +19,7 @@ python run_span_classification_v1.py \
     --test_input_file=word_per_line_preliminary_B.jsonl \
     --do_lower_case \
     --output_dir=../data/model_data/ \
-    --do_train \
+    --do_eval \
     --evaluate_during_training \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
@@ -50,9 +50,11 @@ python run_span_classification_v1.py \
     --rdrop_weight=0.3 \
     --seed=42 \
     --fp16
-# 2022-04-23 18:20:43 - INFO - root -   eval_f1_micro_all_entity = 0.8131
-# 2022-04-23 18:20:43 - INFO - root -   eval_f1_micro_without_label_entity = 0.905
-# 2022-04-23 18:20:43 - INFO - root -   eval_loss = 0.0105
+# 2022-04-27 21:51:39 - INFO - root -   eval_f1_micro_all_entity = 0.8131
+# 2022-04-27 21:51:39 - INFO - root -   eval_f1_micro_all_entity_fx = 0.8657
+# 2022-04-27 21:51:39 - INFO - root -   eval_f1_micro_all_entity_fy = 0.8413
+# 2022-04-27 21:51:39 - INFO - root -   eval_f1_micro_without_label_entity = 0.905
+# 2022-04-27 21:51:39 - INFO - root -   eval_loss = 0.0105
 
 # MacNeZha
 python run_span_classification_v1.py \
@@ -66,7 +68,7 @@ python run_span_classification_v1.py \
     --test_input_file=word_per_line_preliminary_B.jsonl \
     --do_lower_case \
     --output_dir=../data/model_data/ \
-    --do_train \
+    --do_eval \
     --evaluate_during_training \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
@@ -97,9 +99,11 @@ python run_span_classification_v1.py \
     --rdrop_weight=0.3 \
     --seed=42 \
     --fp16
-# 2022-04-25 20:44:57 - INFO - root -   eval_f1_micro_all_entity = 0.8121
-# 2022-04-25 20:44:57 - INFO - root -   eval_f1_micro_without_label_entity = 0.9044
-# 2022-04-25 20:44:57 - INFO - root -   eval_loss = 0.0105
+# 2022-04-27 21:48:03 - INFO - root -   eval_f1_micro_all_entity = 0.8121
+# 2022-04-27 21:48:03 - INFO - root -   eval_f1_micro_all_entity_fx = 0.8647
+# 2022-04-27 21:48:03 - INFO - root -   eval_f1_micro_all_entity_fy = 0.8407
+# 2022-04-27 21:48:03 - INFO - root -   eval_f1_micro_without_label_entity = 0.9044
+# 2022-04-27 21:48:03 - INFO - root -   eval_loss = 0.0105
 
 python run_span_classification_v1.py \
     --experiment_code=nezha-100k-spanv1-datas2v0.0-lr5e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3 \
@@ -112,7 +116,7 @@ python run_span_classification_v1.py \
     --test_input_file=word_per_line_preliminary_B.jsonl \
     --do_lower_case \
     --output_dir=../data/model_data/ \
-    --do_train \
+    --do_eval \
     --evaluate_during_training \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
@@ -143,6 +147,8 @@ python run_span_classification_v1.py \
     --rdrop_weight=0.3 \
     --seed=42 \
     --fp16
-# 2022-04-25 23:31:16 - INFO - root -   eval_f1_micro_all_entity = 0.8121
-# 2022-04-25 23:31:16 - INFO - root -   eval_f1_micro_without_label_entity = 0.9051
-# 2022-04-25 23:31:16 - INFO - root -   eval_loss = 0.0108
+# 2022-04-27 21:49:50 - INFO - root -   eval_f1_micro_all_entity = 0.8121
+# 2022-04-27 21:49:50 - INFO - root -   eval_f1_micro_all_entity_fx = 0.8655
+# 2022-04-27 21:49:50 - INFO - root -   eval_f1_micro_all_entity_fy = 0.8404
+# 2022-04-27 21:49:50 - INFO - root -   eval_f1_micro_without_label_entity = 0.9051
+# 2022-04-27 21:49:50 - INFO - root -   eval_loss = 0.0108

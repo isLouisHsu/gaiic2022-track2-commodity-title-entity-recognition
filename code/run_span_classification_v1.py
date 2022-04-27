@@ -420,6 +420,33 @@ class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
         return ["O",] + [
             str(i) for i in range(55) if i not in [0, 27, 45]
         ]
+    
+    @classmethod
+    def get_xlabels(cls) -> List[str]:
+        return ["O",] + [
+            str(i + 1) for i in range(3)
+        ]
+    
+    @classmethod
+    def get_ylabels(cls) -> List[str]:
+        return ["O",] + [
+            str(i + 1) for i in range(18)
+        ]
+
+    @classmethod
+    def fx(cls, label):
+        if label == "O": return "O"
+        return str((int(label) - 1) // 18 + 1)
+
+    @classmethod
+    def fy(cls, label):
+        if label == "O": return "O"
+        return str((int(label) - 1) %  18 + 1)
+
+    @classmethod
+    def flabel(cls, x, y):
+        if x == "O" or y == "O": return "O"
+        return str(int(x) * int(y))
 
     def read_data(self, input_file: str) -> Any:
         with open(input_file, encoding="utf-8") as f:
@@ -1329,15 +1356,11 @@ class ProcessExample2FeatureZh(ProcessExample2Feature):
             truncation="longest_first",
             max_length=self.max_sequence_length,
             is_split_into_words=True,
+            return_offsets_mapping=True,
             return_tensors="pt",
         )
         input_length = inputs["attention_mask"].sum().item() - 2
         pad_length = self.max_sequence_length - input_length - 2 - 1
-        inputs["offset_mapping"] = torch.tensor([
-            [(0, 0), ] + \
-            [(i, i + 1) for i in range(input_length)] + \
-            [(0, 0) for i in range(pad_length)]
-        ])
         if getattr(self.tokenizer, "do_ref_tokenize"):
             tokens = self.tokenizer.convert_ids_to_tokens(
                 inputs["input_ids"][0])[1: 1 + input_length]
@@ -1626,7 +1649,7 @@ class SpanClassificationHead(nn.Module):
 
         return self.width_embedding(spans_width)
 
-    def forward_endpoint(self, sequence_output, spans):
+    def forward_endpoint(self, sequence_output, spans, return_spans_embedding=False):
 
         spans_start_embedding, spans_end_embedding = \
             self._extract_spans_embedding_endpoint(sequence_output, spans)
@@ -1637,6 +1660,9 @@ class SpanClassificationHead(nn.Module):
             spans_end_embedding,
             spans_width_embedding,
         ], dim=-1)  # (batch_size, num_spans, num_features)
+
+        if return_spans_embedding:
+            return spans_embedding
 
         # TODO: ms-dropout
         logits = self.classifier(spans_embedding)
@@ -2099,6 +2125,34 @@ class ModelForSpanClassification(PreTrainedModel):
                 groundtruths = self.decode(labels, spans, spans_mask, self.config.decode_thresh,
                                            self.config.label2id, self.config.id2label, is_logits=False)
 
+        """
+        Q1：在哪一层对词向量混合？
+        A1：如果在BERT输入层对词向量混合，容易导致BERT预训练权重失效，因此选择在BERT模型输出进行混合；
+            注意由于span无法线性混合，需先计算span表征后混合；
+            同样地，biaffine需要感知span，无法计算biaffine打分，因此仅作用在MLP分类层
+        Q2：如何采样样本进行混合？
+        A2：对同批次内数据打乱后，一一对应进行混合
+        Q3：如何实现标签混合？
+        A3：经推导，不必显式混合标签，可通过损失混合，如下：
+            $$
+            L(\overline{X}, \overline{Y}) =
+                \lambda L(\overline{X}, Y_1) +
+                (1 - \lambda) L(\overline{X}, Y_2)
+            $$
+        Q4：关于span mask处理？是取并集还是跟随标签进行样本集打乱？
+        A4：为减少噪声引入，这里采用后者
+        """
+        if self.config.do_mixup and labels is not None:
+            indices = torch.randperm(logits.size(0))    # 用于打乱样本，同批次内数据进行混合
+            beta = np.random.beta(self.config.mixup_alpha, self.config.mixup_alpha)
+            spans_embedding = self.head(sequence_output, spans, reutrn_spans_embedding=True)
+            # spans_embedding.masked_fill_(spans_mask.unsqueeze(-1).eq(0), value=0.0)
+            spans_embedding_mixup = beta * spans_embedding + (1 - beta) * spans_embedding[indices]
+            logits_mixup = self.head.classifier(spans_embedding_mixup)  # XXX: biaffine需要感知span，故不用于计算打分
+            loss_mixup = beta * self.loss_fct(logits_mixup, labels, spans_mask) + \
+                (1 - beta) * self.loss_fct(logits_mixup, labels[indices], spans_mask[indices])
+            loss = loss + loss_mixup * self.config.mixup_weight
+
         if not return_dict:
             outputs = (logits, predictions, groundtruths) + outputs[2:]
             return ((loss,) + outputs) if loss is not None else outputs
@@ -2148,6 +2202,7 @@ def precision_recall_fscore_support(y_true: Union[List[List[str]], List[List[Tup
                                     average: Optional[str] = None,
                                     labels: Optional[List[str]] = None,
                                     entity_type: str = "all",
+                                    label_convert: Callable = None,
                                     warn_for=('precision', 'recall', 'f-score'),
                                     beta: float = 1.0,
                                     sample_weight: Optional[List[int]] = None,
@@ -2224,6 +2279,10 @@ def precision_recall_fscore_support(y_true: Union[List[List[str]], List[List[Tup
             if entity_type == "without_label":
                 true = [(start, end, "_") for start, end, _ in true]
                 pred = [(start, end, "_") for start, end, _ in pred]
+            
+            if label_convert is not None:
+                true = [(start, end, label_convert(label)) for start, end, label in true]
+                pred = [(start, end, label_convert(label)) for start, end, label in pred]
 
             for start, end, label in true:
                 entities_true[label].add((i, (start, end)))
@@ -2266,9 +2325,10 @@ def precision_recall_fscore_support(y_true: Union[List[List[str]], List[List[Tup
 
 class SequenceLabelingScoreEntity(SequenceLabelingScore):
 
-    def __init__(self, labels, average="micro", entity_type="all"):
+    def __init__(self, labels, average="micro", entity_type="all", label_convert=None):
         super().__init__(labels, average)
         self.entity_type = entity_type
+        self.label_convert = label_convert
 
     def value(self):
         columns = ["label", "precision", "recall", "f1", "support"]
@@ -2278,7 +2338,8 @@ class SequenceLabelingScoreEntity(SequenceLabelingScore):
             p, r, f, s = precision_recall_fscore_support(
                 self.target, self.preds, average=self.average,
                 labels=None if label == self.average else [label],
-                entity_type=self.entity_type
+                entity_type=self.entity_type, 
+                label_convert=self.label_convert,
             )
             values.append([label, p, r, f, s])
         df = pd.DataFrame(values, columns=columns)
@@ -2288,7 +2349,10 @@ class SequenceLabelingScoreEntity(SequenceLabelingScore):
         }
 
     def name(self):
-        return f"{self.entity_type}_entity"
+        name = f"{self.entity_type}_entity"
+        if self.label_convert:
+            name = f"{name}_{self.label_convert.__name__}"
+        return name
 
 
 class SequenceLabelingScoreSpan(SequenceLabelingScore):
@@ -2665,7 +2729,7 @@ class Trainer(TrainerBase):
                     all_batch_list_temp[-1]["groundtruths"] = groundtruths
                 self.update_metrics(all_batch_list_temp, prefix_metric)
                 for metric in self.metrics:
-                    if not isinstance(metric, SequenceLabelingScoreEntity):
+                    if metric.name() != self.opts.checkpoint_monitor.split("_", 3)[-1]:
                         continue
                     metric_value = metric.value()
                     key = self.opts.checkpoint_monitor.split("_", 1)[1]
@@ -2827,6 +2891,9 @@ def build_opts():
         group.add_argument("--label_smoothing", type=float, default=0.0)
         group.add_argument("--focal_gamma", type=float, default=2.0)
         group.add_argument("--focal_alpha", type=float, default=0.25)
+        group.add_argument("--do_mixup", action="store_true")
+        group.add_argument("--mixup_alpha", type=float, default=7.0)
+        group.add_argument("--mixup_weight", type=float, default=0.5)
         group = parser.add_argument_group(title="R-Drop", description="R-Drop")
         group.add_argument("--do_rdrop", action="store_true")
         group.add_argument("--rdrop_weight", type=float, default=0.3)
@@ -2994,6 +3061,9 @@ def main(opts):
         label_smoothing=opts.label_smoothing, 
         focal_gamma=opts.focal_gamma,
         focal_alpha=opts.focal_alpha,
+        do_mixup=opts.do_mixup,
+        mixup_alpha=opts.mixup_alpha,
+        mixup_weight=opts.mixup_weight,
         decode_thresh=opts.decode_thresh,
         do_lstm=opts.do_lstm, 
         num_lstm_layers=opts.num_lstm_layers,
@@ -3042,6 +3112,10 @@ def main(opts):
     metrics = [
         SequenceLabelingScoreEntity({label for label in data_class.get_labels() \
             if label not in ["O",]}, "micro", entity_type="all"),
+        SequenceLabelingScoreEntity({label for label in data_class.get_xlabels() \
+            if label not in ["O",]}, "micro", entity_type="all", label_convert=data_class.fx),
+        SequenceLabelingScoreEntity({label for label in data_class.get_ylabels() \
+            if label not in ["O",]}, "micro", entity_type="all", label_convert=data_class.fy),
         SequenceLabelingScoreEntity({"_"}, "micro", entity_type="without_label"),
     ]
     trainer = Trainer(opts=opts, model=model, metrics=metrics, logger=logger)
