@@ -1909,7 +1909,7 @@ class SpanClassificationRDropLoss(nn.Module):
 
         loss = (p_loss + q_loss) / 2
         return loss
-    
+
 
 class SpanClassificationOutput(ModelOutput):
 
@@ -1920,6 +1920,10 @@ class SpanClassificationOutput(ModelOutput):
 
 
 class ModelForSpanClassification(PreTrainedModel):
+
+    head_class = SpanClassificationHead
+    loss_class = SpanClassificationLoss
+    rdrop_loss_clsss = SpanClassificationRDropLoss
 
     def __init__(self, config):
         super().__init__(config)
@@ -1939,14 +1943,14 @@ class ModelForSpanClassification(PreTrainedModel):
         if config.use_syntactic:
             self.syntactic_upos_embeddings = nn.Embedding(config.syntactic_upos_size, config.hidden_size)
         
-        self.head = SpanClassificationHead(
+        self.head = self.head_class(
             config.hidden_size, config.num_labels,
             config.max_span_length, config.width_embedding_size,
             config.do_projection, config.do_cln, config.do_biaffine,
             config.do_co_attention, config.extract_method,
         )
 
-        self.loss_fct = SpanClassificationLoss(
+        self.loss_fct = self.loss_class(
             num_labels=config.num_labels, 
             loss_type=config.loss_type,
             label_smoothing_eps=config.label_smoothing,
@@ -1957,7 +1961,7 @@ class ModelForSpanClassification(PreTrainedModel):
         )
 
         if config.do_rdrop:
-            self.rdrop_loss_func = SpanClassificationRDropLoss()
+            self.rdrop_loss_func = self.rdrop_loss_clsss()
 
     def forward(
         self,
@@ -2182,7 +2186,7 @@ class ModelForSpanClassification(PreTrainedModel):
 
     @classmethod
     def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
-        return SpanClassificationHead.decode(logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits)
+        return cls.head_class.decode(logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits)
 
 
 class BertForSpanClassification(BertPreTrainedModel, ModelForSpanClassification):
@@ -2327,17 +2331,21 @@ class SpanClassificationXYRDropLoss(SpanClassificationRDropLoss):
 
 class ModelForSpanClassificationXY(ModelForSpanClassification):
 
+    head_class = SpanClassificationXYHead
+    loss_class = SpanClassificationXYLoss
+    rdrop_loss_clsss = SpanClassificationXYRDropLoss
+
     def __init__(self, config):
         super().__init__(config)
 
-        self.head = SpanClassificationXYHead(
+        self.head = self.head_class(
             config.hidden_size, config.num_xlabels, config.num_ylabels,
             config.max_span_length, config.width_embedding_size,
             config.do_projection, config.do_cln, config.do_biaffine,
             config.do_co_attention, config.extract_method,
         )
 
-        self.loss_fct = SpanClassificationXYLoss(
+        self.loss_fct = self.loss_class(
             num_xlabels=config.num_xlabels, 
             num_ylabels=config.num_ylabels, 
             loss_type=config.loss_type,
@@ -2349,12 +2357,7 @@ class ModelForSpanClassificationXY(ModelForSpanClassification):
         )
 
         if config.do_rdrop:
-            self.rdrop_loss_func = SpanClassificationXYRDropLoss()
-
-    @classmethod
-    def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
-        return SpanClassificationXYHead.decode(logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits)
-
+            self.rdrop_loss_func = self.rdrop_loss_clsss()
 
 class NeZhaForSpanClassificationXY(NeZhaPreTrainedModel, ModelForSpanClassificationXY):
 
