@@ -418,8 +418,11 @@ class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
     @classmethod
     def get_labels(cls) -> List[str]:
         return ["O",] + [
-            str(i) for i in range(55) if i not in [0, 27, 45]
+            str(i +1) for i in range(54)
         ]
+        # return ["O",] + [
+        #     str(i) for i in range(55) if i not in [0, 27, 45]
+        # ]
     
     @classmethod
     def get_xlabels(cls) -> List[str]:
@@ -1754,15 +1757,24 @@ class SpanClassificationHead(nn.Module):
     def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
         other_id = label2id["O"]
         if is_logits:
-            # probas, labels = logits_or_labels.softmax(dim=-1).max(dim=-1)           # (batch_size, sequence_length)
-            # labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX), 
-            #     torch.full_like(labels, other_id), labels)
             probas = logits_or_labels.softmax(dim=-1)
-            probas[..., other_id] = torch.where(probas[..., other_id] < thresh, 
-                torch.zeros_like(probas[..., other_id]), probas[..., other_id])
-            # probas, labels = probas.max(dim=-1) # TODO: 实体类别概率
+            # TODO: 这题不利于提高召回率，应确保精确率为主。
+            #       因为当分词出现错误时，同时降低准确率、召回率，而直接预测为非实体，仅降低召回率。
+            # probas, labels = probas.max(dim=-1)     # 实体类别概率
             _, labels = probas.max(dim=-1)
-            probas = 1 - probas[..., other_id]  # 是实体的概率
+            probas = 1 - probas[..., other_id]      # 是实体的概率
+            labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX),      # 提精度
+                torch.full_like(labels, other_id), labels)
+            # ---
+            # probas[..., other_id] = torch.where(probas[..., other_id] < thresh,
+            #     torch.zeros_like(probas[..., other_id]), probas[..., other_id])     # 提召回
+            # # probas, labels = probas.max(dim=-1) # TODO: 实体类别概率
+            # _, labels = probas.max(dim=-1)
+            # probas = 1 - probas[..., other_id]  # 是实体的概率
+
+            # 无27、45两类
+            labels[labels == 27] = other_id
+            labels[labels == 45] = other_id
         else:
             probas, labels = torch.ones_like(logits_or_labels), logits_or_labels    # (batch_size, sequence_length)
 
@@ -1866,6 +1878,8 @@ class SpanClassificationLoss(nn.Module):
         elif loss_type == "focal":
             self.loss_fct = FocalLoss(num_labels=num_labels, 
                 gamma=focal_gamma, alpha=focal_alpha, reduction="none")
+        elif loss_type == "lsrol":
+            self.loss_fct = None    # TODO:
 
     def forward(
         self,
@@ -2215,32 +2229,97 @@ class NeZhaForSpanClassification(NeZhaPreTrainedModel, ModelForSpanClassificatio
         self.bert = NeZhaModel(config)
         self.init_weights()
 
+class XYClassifier(nn.Module):
+    """ 目的是减少两组分类任务的共享参数 """
+
+    def __init__(self, in_features, hidden_size, num_xlabels, num_ylabels):
+        super().__init__()
+        # TODO: 一般bert后网络层次不会很深，太多参数影响微调性能；但可借助该层交互任务信息？
+        # self.share_fc = nn.Sequential(
+        #     nn.Linear(in_features, hidden_size),
+        #     nn.ReLU()
+        # )
+        # in_features = hidden_size
+        self.x_fc = nn.Sequential(
+            nn.Linear(in_features, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, num_xlabels),
+        )
+        self.y_fc = nn.Sequential(
+            nn.Linear(in_features, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, num_ylabels),
+        )
+
+    def forward(self, x):
+        # x = self.share_fc(x)
+        logits = torch.cat([self.x_fc(x), self.y_fc(x)], dim=-1)
+        return logits
 class SpanClassificationXYHead(SpanClassificationHead):
 
-    def __init__(self, hidden_size, num_xlabels, num_ylabels, max_span_length, width_embedding_size,
-                 do_projection=False, do_cln=False, do_biaffine=False, 
-                 do_co_attention=False, extract_method="endpoint"):
-        super().__init__(hidden_size, num_xlabels + num_ylabels, max_span_length, width_embedding_size,
-                 do_projection=do_projection, do_cln=do_cln, do_biaffine=do_biaffine, 
+    def __init__(self, hidden_size, num_labels, max_span_length, width_embedding_size,
+                 do_projection=False, do_cln=False, do_biaffine=False,
+                 do_co_attention=False, extract_method="endpoint",
+                 num_xlabels=None, num_ylabels=None):
+        super().__init__(hidden_size, num_labels, max_span_length, width_embedding_size,
+                 do_projection=do_projection, do_cln=do_cln, do_biaffine=do_biaffine,
                  do_co_attention=do_co_attention, extract_method=extract_method)
 
-        self.num_xlabels = num_xlabels
-        self.num_ylabels = num_ylabels
+        if num_xlabels is not None and num_ylabels is not None: # for the first initialization
+            self.num_xlabels = num_xlabels
+            self.num_ylabels = num_ylabels
+
+            # TODO: 以下方式分类时，除最后一层fc，其他参数均共享，不利于特征多样化？
+            num_features = self.classifier[0].in_features
+            # self.classifier = nn.Sequential(
+            #     nn.Linear(num_features, hidden_size),
+            #     nn.ReLU(),
+            #     nn.Linear(hidden_size, num_xlabels + num_ylabels),
+            # )
+            self.classifier = XYClassifier(num_features, hidden_size, num_xlabels, num_ylabels)
+            self.do_biaffine = do_biaffine
+            if self.do_biaffine:
+                self.bilinear = XBiaffineRel(hidden_size, num_xlabels + num_ylabels, bias=True, div=4)
 
     @classmethod
     def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
         other_id = label2id["O"]
-        import pdb; pdb.set_trace()
         if is_logits:
-            # probas, labels = logits_or_labels.softmax(dim=-1).max(dim=-1)           # (batch_size, sequence_length)
-            # labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX), 
-            #     torch.full_like(labels, other_id), labels)
-            probas = logits_or_labels.softmax(dim=-1)
-            probas[..., other_id] = torch.where(probas[..., other_id] < thresh, 
-                torch.zeros_like(probas[..., other_id]), probas[..., other_id])
-            # probas, labels = probas.max(dim=-1) # TODO: 实体类别概率
-            _, labels = probas.max(dim=-1)
-            probas = 1 - probas[..., other_id]  # 是实体的概率
+            xprobas = logits_or_labels[..., : 4].softmax(dim=-1)    # XXX: num_xlabels不是类变量
+            yprobas = logits_or_labels[..., 4: ].softmax(dim=-1)
+
+            # TODO: 这题不利于提高召回率，应确保精确率为主。
+            #       因为当分词出现错误时，同时降低准确率、召回率，而直接预测为非实体，仅降低召回率。
+            _, xlabels = xprobas.max(dim=-1)
+            _, ylabels = yprobas.max(dim=-1)
+            xlabels = torch.where((1 - xprobas[..., other_id] < thresh) | (xlabels == IGNORE_INDEX),   # 提精度
+                torch.full_like(xlabels, other_id), xlabels)
+            ylabels = torch.where((1 - yprobas[..., other_id] < thresh) | (ylabels == IGNORE_INDEX),   # 提精度
+                torch.full_like(ylabels, other_id), ylabels)
+            # ---
+            # xprobas[..., other_id] = torch.where(xprobas[..., other_id] < thresh,
+            #     torch.zeros_like(xprobas[..., other_id]), xprobas[..., other_id])   # 提召回
+            # yprobas[..., other_id] = torch.where(yprobas[..., other_id] < thresh,
+            #     torch.zeros_like(yprobas[..., other_id]), yprobas[..., other_id])   # 提召回
+            # _, xlabels = xprobas.max(dim=-1)
+            # _, ylabels = yprobas.max(dim=-1)
+
+            # 两组标签取交集，即均预测出实体时，最终才输出实体，提高精确率
+            # [0, 1, 2, 3] x [0, 1, 2, 3, ..., 18] -> [0, 1, 2, 3, ..., 54]
+            labels = torch.where((xlabels * ylabels) > 0, 18 * (xlabels - 1) + ylabels, 0)
+            probas = (1 - xprobas[..., other_id]) * (1 - yprobas[..., other_id])    # 是实体的概率
+            # 两组标签取并集，即一组预测为实体时，召回另一组标签实体，提高召回率
+            # p = xprobas.clone(); p[..., 0] = 0.0
+            # q = yprobas.clone(); q[..., 0] = 0.0
+            # xlabels, ylabels = torch.where(ylabels != 0, p.max(dim=-1)[1], xlabels), \
+            #                    torch.where(xlabels != 0, q.max(dim=-1)[1], ylabels)
+            # # [0, 1, 2, 3] x [0, 1, 2, 3, ..., 18] -> [0, 1, 2, 3, ..., 54]
+            # labels = torch.where((xlabels * ylabels) > 0, 18 * (xlabels - 1) + ylabels, 0)
+            # probas = 1 - xprobas[..., other_id] * yprobas[..., other_id]    # 是实体的概率
+
+            # 无27、45两类
+            labels[labels == 27] = other_id
+            labels[labels == 45] = other_id
         else:
             probas, labels = torch.ones_like(logits_or_labels), logits_or_labels    # (batch_size, sequence_length)
 
@@ -2272,34 +2351,38 @@ class SpanClassificationXYHead(SpanClassificationHead):
 class SpanClassificationXYLoss(nn.Module):
 
     def __init__(
-        self, 
-        num_xlabels, 
-        num_ylabels, 
-        loss_type="lsr", 
-        label_smoothing_eps=0.0, 
-        focal_gamma=2.0, 
+        self,
+        num_labels,
+        num_xlabels=None,
+        num_ylabels=None,
+        loss_type="lsr",
+        label_smoothing_eps=0.0,
+        focal_gamma=2.0,
         focal_alpha=0.25,
-        reduction="mean", 
+        reduction="mean",
         ignore_index=-100
     ):
-        self.loss_fct_x = SpanClassificationLoss(
-            num_xlabels, 
-            loss_type=loss_type, 
-            label_smoothing_eps=label_smoothing_eps, 
-            focal_gamma=focal_gamma, 
-            focal_alpha=focal_alpha,
-            reduction=reduction, 
-            ignore_index=ignore_index
-        )
-        self.loss_fct_y = SpanClassificationLoss(
-            num_ylabels, 
-            loss_type=loss_type, 
-            label_smoothing_eps=label_smoothing_eps, 
-            focal_gamma=focal_gamma, 
-            focal_alpha=focal_alpha,
-            reduction=reduction, 
-            ignore_index=ignore_index
-        )
+        super().__init__()
+        if num_xlabels is not None:     # for the first initialization
+            self.loss_fct_x = SpanClassificationLoss(
+                num_xlabels,
+                loss_type=loss_type,
+                label_smoothing_eps=label_smoothing_eps,
+                focal_gamma=focal_gamma,
+                focal_alpha=focal_alpha,
+                reduction=reduction,
+                ignore_index=ignore_index
+            )
+        if num_xlabels is not None:     # for the first initialization
+            self.loss_fct_y = SpanClassificationLoss(
+                num_ylabels,
+                loss_type=loss_type,
+                label_smoothing_eps=label_smoothing_eps,
+                focal_gamma=focal_gamma,
+                focal_alpha=focal_alpha,
+                reduction=reduction,
+                ignore_index=ignore_index
+            )
 
     def forward(
         self,
@@ -2309,24 +2392,27 @@ class SpanClassificationXYLoss(nn.Module):
     ):
         num_xlabels = self.loss_fct_x.num_labels
         num_ylabels = self.loss_fct_y.num_labels
-        import pdb; pdb.set_trace()
-        # xlabels = GaiicTrack2SpanClassificationDataset.fx(labels)
-        # ylabels = GaiicTrack2SpanClassificationDataset.fy(labels)
-        loss_x = self.loss_fct_x(logits[: num_xlabels], xlabels, mask)
-        loss_y = self.loss_fct_y(logits[: num_xlabels], ylabels, mask)
+        # [0, 1, 2, ..., 54] -> [0, 1, 2, 3]
+        xlabels = torch.where(labels > 0, (labels - 1) // 18 + 1, labels)
+        # [0, 1, 2, ..., 54] -> [0, 1, 2, ..., 18]
+        ylabels = torch.where(labels > 0, (labels - 1) %  18 + 1, labels)
+        loss_x = self.loss_fct_x(logits[..., : num_xlabels], xlabels, mask)
+        loss_y = self.loss_fct_y(logits[..., num_xlabels: ], ylabels, mask)
+        # TODO: 多任务权重问题？
         return loss_x + loss_y
+        # return loss_x.log() + loss_y.log()  # https://kexue.fm/archives/8870/comment-page-1
 
 class SpanClassificationXYRDropLoss(SpanClassificationRDropLoss):
 
-    def __init__(self, num_xlabels, num_ylabels):
+    def __init__(self, num_xlabels=None, num_ylabels=None):
         super().__init__()
         self.num_xlabels = num_xlabels
         self.num_ylabels = num_ylabels
-    
+   
     def forward(self, p, q, mask=None):
-        px, py = p[: self.num_xlabels], p[self.num_xlabels: ]
-        qx, qy = q[: self.num_xlabels], q[self.num_xlabels: ]
-        loss = super()(px, qx, mask) + super()(py, qy, mask)
+        px, py = p[..., : self.num_xlabels], p[..., self.num_xlabels: ]
+        qx, qy = q[..., : self.num_xlabels], q[..., self.num_xlabels: ]
+        loss = super().forward(px, qx, mask) + super().forward(py, qy, mask)
         return loss
 
 class ModelForSpanClassificationXY(ModelForSpanClassification):
@@ -2339,15 +2425,17 @@ class ModelForSpanClassificationXY(ModelForSpanClassification):
         super().__init__(config)
 
         self.head = self.head_class(
-            config.hidden_size, config.num_xlabels, config.num_ylabels,
+            config.hidden_size, config.num_labels,
             config.max_span_length, config.width_embedding_size,
             config.do_projection, config.do_cln, config.do_biaffine,
             config.do_co_attention, config.extract_method,
+            config.num_xlabels, config.num_ylabels,
         )
 
         self.loss_fct = self.loss_class(
-            num_xlabels=config.num_xlabels, 
-            num_ylabels=config.num_ylabels, 
+            num_labels=config.num_labels,
+            num_xlabels=config.num_xlabels,
+            num_ylabels=config.num_ylabels,
             loss_type=config.loss_type,
             label_smoothing_eps=config.label_smoothing,
             focal_gamma=config.focal_gamma,
@@ -2357,7 +2445,7 @@ class ModelForSpanClassificationXY(ModelForSpanClassification):
         )
 
         if config.do_rdrop:
-            self.rdrop_loss_func = self.rdrop_loss_clsss()
+            self.rdrop_loss_func = self.rdrop_loss_clsss(config.num_xlabels, config.num_ylabels)
 
 class NeZhaForSpanClassificationXY(NeZhaPreTrainedModel, ModelForSpanClassificationXY):
 
