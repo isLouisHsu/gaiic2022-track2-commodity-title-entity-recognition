@@ -320,13 +320,9 @@ python run_mlm_wwm.py \
     --seed=42 \
     --fp16
 
-mkdir -p ../data/pretrain_model/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2/
-cp -r ../data/pretrain_model/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
-    ../data/pretrain_model/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2/
-# TODO:
 export WANDB_DISABLED=true
 data_dir=data/processed/pretrain-v2
-version=nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-200k-warmup3k-bs64x2
+version=nezha-cn-base-wwm-4gram-seq128-lr2e-5-mlm0.15-200k-warmup5k-bs64x2
 python run_mlm_wwm.py \
     --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
     --model_type=nezha \
@@ -339,9 +335,10 @@ python run_mlm_wwm.py \
     --max_seq_length=128 \
     --preprocessing_num_workers=8 \
     --mlm_probability=0.15 \
+    --max_ngram=4 \
     --output_dir=outputs/${version}/ \
     --do_train --do_eval \
-    --warmup_steps=3000 \
+    --warmup_steps=5000 \
     --max_steps=200000 \
     --evaluation_strategy=steps \
     --eval_steps=5000 \
@@ -360,3 +357,4 @@ python run_mlm_wwm.py \
     --dataloader_num_workers=4 \
     --seed=42 \
     --fp16
+    
