@@ -4,6 +4,12 @@
 
 ## 更新
 
+### 2022/4/30
+1. 预训练，`nezha-cn-base-wwm-4gram-seq128-lr2e-5-mlm0.15-200k-warmup5k-bs64x2`，MLM最终损失1.674683690071106；
+1. 预训练，`nezha-cn-base-wwm-4gram-seq128-lr3e-5-mlm0.15-100k-warmup1k-bs64x2`，MLM最终损失TODO:；
+2. `nezha-4gram-200k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0`，线下0.812；
+3. `nezha-4gram-200k-spanv1xy-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0`，w/ share_fc，线下0.811；
+
 ### 2022/4/28
 1. 新增X, Y分类实现；
 

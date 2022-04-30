@@ -414,15 +414,18 @@ class SpanClassificationDataset(DatasetBase):
 
 
 class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
+    exclude_not_exist_labels = os.environ.get("EXCLUDE_NOT_EXIST_LABELS", None)
 
     @classmethod
     def get_labels(cls) -> List[str]:
-        return ["O",] + [
-            str(i +1) for i in range(54)
-        ]
-        # return ["O",] + [
-        #     str(i) for i in range(55) if i not in [0, 27, 45]
-        # ]
+        if cls.exclude_not_exist_labels.lower() == "true":
+            return ["O",] + [
+                str(i) for i in range(55) if i not in [0, 27, 45]
+            ]
+        else:
+            return ["O",] + [
+                str(i +1) for i in range(54)
+            ]
     
     @classmethod
     def get_xlabels(cls) -> List[str]:
@@ -2235,11 +2238,11 @@ class XYClassifier(nn.Module):
     def __init__(self, in_features, hidden_size, num_xlabels, num_ylabels):
         super().__init__()
         # TODO: 一般bert后网络层次不会很深，太多参数影响微调性能；但可借助该层交互任务信息？
-        # self.share_fc = nn.Sequential(
-        #     nn.Linear(in_features, hidden_size),
-        #     nn.ReLU()
-        # )
-        # in_features = hidden_size
+        self.share_fc = nn.Sequential(
+            nn.Linear(in_features, hidden_size),
+            nn.ReLU()
+        )
+        in_features = hidden_size
         self.x_fc = nn.Sequential(
             nn.Linear(in_features, hidden_size),
             nn.ReLU(),
@@ -2252,9 +2255,10 @@ class XYClassifier(nn.Module):
         )
 
     def forward(self, x):
-        # x = self.share_fc(x)
+        x = self.share_fc(x)
         logits = torch.cat([self.x_fc(x), self.y_fc(x)], dim=-1)
         return logits
+
 class SpanClassificationXYHead(SpanClassificationHead):
 
     def __init__(self, hidden_size, num_labels, max_span_length, width_embedding_size,

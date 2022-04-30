@@ -321,7 +321,7 @@ python run_mlm_wwm.py \
     --fp16
 
 export WANDB_DISABLED=true
-data_dir=data/processed/pretrain-v2
+data_dir=../data/tmp_data/pretrain-v2
 version=nezha-cn-base-wwm-4gram-seq128-lr2e-5-mlm0.15-200k-warmup5k-bs64x2
 python run_mlm_wwm.py \
     --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
@@ -336,7 +336,7 @@ python run_mlm_wwm.py \
     --preprocessing_num_workers=8 \
     --mlm_probability=0.15 \
     --max_ngram=4 \
-    --output_dir=outputs/${version}/ \
+    --output_dir=../data/pretrain_model/${version}/ \
     --do_train --do_eval \
     --warmup_steps=5000 \
     --max_steps=200000 \
@@ -347,6 +347,44 @@ python run_mlm_wwm.py \
     --gradient_accumulation_steps=2 \
     --label_smoothing_factor=0.0 \
     --learning_rate=2e-5 \
+    --weight_decay=0.01 \
+    --logging_dir=outputs/${version}/log/ \
+    --logging_strategy=steps \
+    --logging_steps=5000 \
+    --save_strategy=steps \
+    --save_steps=5000 \
+    --save_total_limit=20 \
+    --dataloader_num_workers=4 \
+    --seed=42 \
+    --fp16
+    
+export WANDB_DISABLED=true
+data_dir=../data/tmp_data/pretrain-v2
+version=nezha-cn-base-wwm-4gram-seq128-lr3e-5-mlm0.15-100k-warmup1k-bs64x2
+python run_mlm_wwm.py \
+    --model_name_or_path=/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/ \
+    --model_type=nezha \
+    --train_file=${data_dir}/corpus.train.txt \
+    --validation_file=${data_dir}/corpus.valid.txt \
+    --train_ref_file=${data_dir}/ref.train.txt \
+    --validation_ref_file=${data_dir}/ref.valid.txt \
+    --cache_dir=cache/ \
+    --overwrite_cache \
+    --max_seq_length=128 \
+    --preprocessing_num_workers=8 \
+    --mlm_probability=0.15 \
+    --max_ngram=4 \
+    --output_dir=../data/pretrain_model/${version}/ \
+    --do_train --do_eval \
+    --warmup_steps=1000 \
+    --max_steps=100000 \
+    --evaluation_strategy=steps \
+    --eval_steps=5000 \
+    --per_device_train_batch_size=64 \
+    --per_device_eval_batch_size=64 \
+    --gradient_accumulation_steps=2 \
+    --label_smoothing_factor=0.0 \
+    --learning_rate=3e-5 \
     --weight_decay=0.01 \
     --logging_dir=outputs/${version}/log/ \
     --logging_strategy=steps \
