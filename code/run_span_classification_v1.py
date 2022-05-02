@@ -414,18 +414,21 @@ class SpanClassificationDataset(DatasetBase):
 
 
 class GaiicTrack2SpanClassificationDataset(SpanClassificationDataset):
-    exclude_not_exist_labels = os.environ.get("EXCLUDE_NOT_EXIST_LABELS", None)
+    exclude_not_exist_labels = os.environ.get("EXCLUDE_NOT_EXIST_LABELS", "true")
 
     @classmethod
     def get_labels(cls) -> List[str]:
-        if cls.exclude_not_exist_labels.lower() == "true":
-            return ["O",] + [
+        return ["O",] + [
                 str(i) for i in range(55) if i not in [0, 27, 45]
             ]
-        else:
-            return ["O",] + [
-                str(i +1) for i in range(54)
-            ]
+        # if cls.exclude_not_exist_labels.lower() == "true":
+        #     return ["O",] + [
+        #         str(i) for i in range(55) if i not in [0, 27, 45]
+        #     ]
+        # else:
+        #     return ["O",] + [
+        #         str(i +1) for i in range(54)
+        #     ]
     
     @classmethod
     def get_xlabels(cls) -> List[str]:
