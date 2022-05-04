@@ -4,3 +4,6 @@
 [submodule "code/TorchBlocks"]
 	path = code/TorchBlocks
 	url = git@github.com:isLouisHsu/TorchBlocks.git
+[submodule "apex"]
+	path = apex
+	url = https://github.com/NVIDIA/apex
