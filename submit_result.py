@@ -58,10 +58,10 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
         """ % (result_file_path, submit_result_file)
     os.system(cmd)
 
-if __name__ == "__main__":
-    pred_BIO(
-        "data/contest_data/preliminary_test_b/word_per_line_preliminary_B.txt", 
-        "data/contest_data/preliminary_test_b/sample_per_line_preliminary_B.txt",
-        submit_result_file="../results.txt",
-    )
+# if __name__ == "__main__":
+#     pred_BIO(
+#         "data/contest_data/preliminary_test_b/word_per_line_preliminary_B.txt", 
+#         "data/contest_data/preliminary_test_b/sample_per_line_preliminary_B.txt",
+#         submit_result_file="../results.txt",
+#     )
     
