@@ -49,7 +49,7 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
         python run_span_classification_v1.py \
             ../%s
         """ % (path_word, json_file)
-    # os.system(cmd)
+    os.system(cmd)
     checkpoint_path = os.path.join(model_path, opts.checkpoint_predict_code)
     result_file_path = glob.glob(os.path.join(checkpoint_path, "*.predictions.txt"))[0]
     cmd = \
