@@ -1,0 +1,9 @@
+rm -rf ../data/best_model/*/*-predict-*.log
+rm -rf ../data/best_model/*/predict_opts.json
+rm -rf ../data/best_model/*/*/optimizer.pt
+rm -rf ../data/best_model/*/*/scheduler.pt
+rm -rf ../data/best_model/*/*/*.pkl
+rm -rf ../data/best_model/*/*/*.predictions.txt
+rm -rf ../data/tmp_data/*
+rm -rf ../data/pretrain_model/*/*/optimizer.pt
+rm -rf ../data/pretrain_model/*/*/scheduler.pt
