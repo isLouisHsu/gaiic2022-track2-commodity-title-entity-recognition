@@ -18,6 +18,8 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     opts.do_predict = True
     opts.per_gpu_test_batch_size = batch_size
     opts.gradient_accumulation_steps = 1
+    opts.data_dir = "../data/tmp_data/predict/"
+    
     # opts.fp16= False
     json_file = os.path.join(model_path, "predict_opts.json")
     with open(str(json_file), 'w') as f:
