@@ -151,7 +151,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ltp", 
         type=str, 
-        default="/home/louishsu/NewDisk/Garage/weights/ltp/base1.tgz", 
+        # default="/home/louishsu/NewDisk/Garage/weights/ltp/base1.tgz", 
+        default=None, 
         help="resources for LTP tokenizer, usually a path"
     )
     parser.add_argument(
