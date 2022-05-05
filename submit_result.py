@@ -12,6 +12,7 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     model_path="data/best_model/gaiic_nezha_nezha-4gram-200k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs8x2-sinusoidal-biaffine-fgm1.0-rdrop0.3",
     submit_result_file="/home/mw/project/results.txt"
 ):
+    basename, ext = os.path.splitext(os.path.basename(path_word))
     json_file = glob.glob(os.path.join(model_path, "*_opts.json"))[0]
     opts = Argparser.parse_args_from_json(json_file=json_file)
     opts.output_dir = os.path.join("../", model_path)
@@ -21,6 +22,7 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     opts.per_gpu_test_batch_size = batch_size
     opts.gradient_accumulation_steps = 1
     opts.data_dir = "../data/tmp_data/predict/"
+    opts.test_input_file = f"{basename}.jsonl"
     opts.fp16= False
     json_file = os.path.join(model_path, "predict_opts.json")
     with open(str(json_file), 'w') as f:
