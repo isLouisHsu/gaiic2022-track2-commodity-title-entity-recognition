@@ -2,9 +2,11 @@ import os
 import sys
 import glob
 import json
-sys.path.append("code/TorchBlocks/")
-from torchblocks.utils.options import Argparser
-from torchblocks.core.utils import is_apex_available
+# sys.path.append("code/TorchBlocks/")
+# from torchblocks.utils.options import Argparser
+# from torchblocks.core.utils import is_apex_available
+sys.path.append("code/")
+from packages import Argparser, is_apex_available
 
 def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1, 
     model_path="data/best_model/gaiic_nezha_nezha-4gram-200k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs8x2-sinusoidal-biaffine-fgm1.0-rdrop0.3",
