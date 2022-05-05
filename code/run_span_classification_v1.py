@@ -3474,11 +3474,11 @@ def main(opts):
             model.to(opts.device)
             trainer.model = model
             # trainer.predict(test_data=test_dataset, save_result=True, save_dir=checkpoint)
-            trainer.predict(test_data=test_dataset, save_result=True, save_dir="~/temp/")
+            trainer.predict(test_data=test_dataset, save_result=True, save_dir="/home/mw/temp/")
 
             # 保存为样本，用于分析
             # results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
-            results = load_pickle(os.path.join("~/temp/", f"test_predict_results.pkl"))
+            results = load_pickle(os.path.join("/home/mw/temp/", f"test_predict_results.pkl"))
             entities = list(chain(*[batch["predictions"] for batch in results]))
             examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[:-1])
             # with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
