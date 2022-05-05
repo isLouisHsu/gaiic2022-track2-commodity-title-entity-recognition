@@ -3470,14 +3470,15 @@ def main(opts):
             checkpoints.append(checkpoint)
         logger.info("Predict the following checkpoints: %s", checkpoints)
         for checkpoint in checkpoints:
-            prefix = checkpoint.split("/")[-1]
             model = model_class.from_pretrained(checkpoint, config=config)
             model.to(opts.device)
             trainer.model = model
-            trainer.predict(test_data=test_dataset, save_result=True, save_dir=prefix)
+            # trainer.predict(test_data=test_dataset, save_result=True, save_dir=checkpoint)
+            trainer.predict(test_data=test_dataset, save_result=True, save_dir="~/temp/")
 
             # 保存为样本，用于分析
-            results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
+            # results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
+            results = load_pickle(os.path.join("~/temp/", f"test_predict_results.pkl"))
             entities = list(chain(*[batch["predictions"] for batch in results]))
             examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[:-1])
             # with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
