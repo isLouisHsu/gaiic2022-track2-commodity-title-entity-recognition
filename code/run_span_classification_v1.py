@@ -45,22 +45,23 @@ from transformers.file_utils import ModelOutput
 from nezha.modeling_nezha import NeZhaPreTrainedModel, NeZhaModel
 
 sys.path.append("TorchBlocks/")
-# from torchblocks.data.dataset import DatasetBase
-from torchblocks.callback import ProgressBar, ModelCheckpoint
-from torchblocks.data.process_base import ProcessBase
-from torchblocks.metrics.sequence_labeling.scheme import get_scheme
-from torchblocks.metrics.sequence_labeling.precision_recall_fscore import _precision_recall_fscore_support
-from torchblocks.metrics.sequence_labeling.seqTag_score import SequenceLabelingScore
-from torchblocks.layers.layer_norm import ConditionalLayerNorm
-from torchblocks.losses.focal_loss import FocalLoss
-from torchblocks.losses.label_smoothing import LabelSmoothingCE
-from torchblocks.core import TrainerBase
-from torchblocks.utils.options import Argparser
-from torchblocks.utils.logger import Logger
-from torchblocks.utils.device import prepare_device
-from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
-from torchblocks.utils.paths import find_all_checkpoints
-from torchblocks.utils.seed import seed_everything
+# # from torchblocks.data.dataset import DatasetBase
+# from torchblocks.callback import ProgressBar, ModelCheckpoint
+# from torchblocks.data.process_base import ProcessBase
+# from torchblocks.metrics.sequence_labeling.scheme import get_scheme
+# from torchblocks.metrics.sequence_labeling.precision_recall_fscore import _precision_recall_fscore_support
+# from torchblocks.metrics.sequence_labeling.seqTag_score import SequenceLabelingScore
+# from torchblocks.layers.layer_norm import ConditionalLayerNorm
+# from torchblocks.losses.focal_loss import FocalLoss
+# from torchblocks.losses.label_smoothing import LabelSmoothingCE
+# from torchblocks.core import TrainerBase
+# from torchblocks.utils.options import Argparser
+# from torchblocks.utils.logger import Logger
+# from torchblocks.utils.device import prepare_device
+# from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
+# from torchblocks.utils.paths import find_all_checkpoints
+# from torchblocks.utils.seed import seed_everything
+from packages import *
 from tokenization_bert_zh import BertTokenizerZh
 from utils import get_spans_bio, check_example, get_synonym
 from run_chinese_ref import is_chinese
