@@ -42,13 +42,11 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
         """
         # sh init.sh
         cd code/
-        test_file=%s
         python prepare_data.py \
             --version=predict \
             --labeled_files \
                 ../data/contest_data/train_data/train.txt \
-            --test_files \
-                ${test_file} \
+            --test_files %s \
             --output_dir=../data/tmp_data/ \
             --n_splits=1 \
             --seed=42
