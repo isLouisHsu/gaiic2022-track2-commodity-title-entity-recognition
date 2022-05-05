@@ -6,9 +6,10 @@ from typing import *
 from argparse import ArgumentParser
 from sklearn.model_selection import KFold
 
-sys.path.append("TorchBlocks/")
-from torchblocks.utils.seed import seed_everything
-from torchblocks.metrics.sequence_labeling.scheme import get_scheme
+# sys.path.append("TorchBlocks/")
+# from torchblocks.utils.seed import seed_everything
+# from torchblocks.metrics.sequence_labeling.scheme import get_scheme
+from packages import seed_everything
 from utils import get_spans_bio
 
 def generate_examples(data_path):
