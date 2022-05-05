@@ -36,11 +36,13 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     #     print(cmd)
     #     os.system(cmd)
 
+    if not os.path.exists(path_word):
+        path_word = os.path.join("..", path_word)
     cmd = \
         """
         # sh init.sh
         cd code/
-        test_file=../%s
+        test_file=%s
         python prepare_data.py \
             --version=predict \
             --labeled_files \
