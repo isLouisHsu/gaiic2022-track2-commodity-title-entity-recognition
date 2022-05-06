@@ -2590,6 +2590,7 @@ class TrainerBase:
         if save_result:
             if file_name is None: file_name = f"test_predict_results.pkl"
             self.save_predict_result(data=all_batch_list, file_name=file_name, save_dir=save_dir)
+        return all_batch_list
 
     def predict_forward(self, batch):
         self.model.eval()

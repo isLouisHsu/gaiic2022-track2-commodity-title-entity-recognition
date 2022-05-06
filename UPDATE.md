@@ -4,6 +4,22 @@
 
 ## 更新
 
+### 2022/5/6
+1. 新增伪标签学习/蒸馏；
+
+### 2022/5/5
+1. 排查线上提交错误问题，成功提交，修复问题包括：
+   1. 新增packages包，用于部署模型服务（不支持勾选文件夹问题）；
+   2. 解决transformers==4.17.0与datasets==1.8.0两个包依赖冲突（huggingface-hub）；
+   3. 修改submit_results.py：
+      1. 不安装apex，并设置opts.fp17 = False；
+      2. 线上pred_BIO传入绝对路径，无需添加"../"前缀；
+      3. 修改opts.test_input_file文件名为线上测试集文件；
+      4. run_span_classification_v1.py中do_predict阶段预测文件不落盘（/home/mw/project/容量仅3G）；
+2. 线上继续预训练
+   1. run_chinese_ref.py修改LTP导入位置，并修改默认args.ltp参数为None；
+   2. 解决ipynb修改环境变量问题，用`%env KEY=VALUE`命令设置
+
 ### 2022/5/1
 1. `nezha-4gram-200k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs8x2-sinusoidal-biaffine-fgm1.0-rdrop0.3`，线下0.8108；
 

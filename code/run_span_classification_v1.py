@@ -61,7 +61,26 @@ sys.path.append("TorchBlocks/")
 # from torchblocks.utils.paths import check_dir, load_pickle, check_file, is_file
 # from torchblocks.utils.paths import find_all_checkpoints
 # from torchblocks.utils.seed import seed_everything
-from packages import *
+from packages import (
+    ProgressBar, ModelCheckpoint,
+    ProcessBase,
+    get_scheme,
+    _precision_recall_fscore_support,
+    SequenceLabelingScore,
+    ConditionalLayerNorm,
+    FocalLoss,
+    LabelSmoothingCE,
+    TrainerBase,
+    Argparser,
+    Logger,
+    prepare_device,
+    check_dir,
+    load_pickle,
+    check_file,
+    is_file,
+    find_all_checkpoints,
+    seed_everything,
+)
 from tokenization_bert_zh import BertTokenizerZh
 from utils import get_spans_bio, check_example, get_synonym
 from run_chinese_ref import is_chinese
@@ -1997,7 +2016,7 @@ class ModelForSpanClassification(PreTrainedModel):
         rdrop_forward=False,
         return_dict=None,
     ):
-        if self.config.do_rdrop and (not rdrop_forward) and self.training:
+        if self.config.do_rdrop and (not rdrop_forward) and self.training and (labels is not None):
             outputs1 = self(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -2183,16 +2202,16 @@ class ModelForSpanClassification(PreTrainedModel):
         Q4：关于span mask处理？是取并集还是跟随标签进行样本集打乱？
         A4：为减少噪声引入，这里采用后者
         """
-        if self.config.do_mixup and labels is not None:
-            indices = torch.randperm(logits.size(0))    # 用于打乱样本，同批次内数据进行混合
-            beta = np.random.beta(self.config.mixup_alpha, self.config.mixup_alpha)
-            spans_embedding = self.head(sequence_output, spans, reutrn_spans_embedding=True)
-            # spans_embedding.masked_fill_(spans_mask.unsqueeze(-1).eq(0), value=0.0)
-            spans_embedding_mixup = beta * spans_embedding + (1 - beta) * spans_embedding[indices]
-            logits_mixup = self.head.classifier(spans_embedding_mixup)  # XXX: biaffine需要感知span，故不用于计算打分
-            loss_mixup = beta * self.loss_fct(logits_mixup, labels, spans_mask) + \
-                (1 - beta) * self.loss_fct(logits_mixup, labels[indices], spans_mask[indices])
-            loss = loss + loss_mixup * self.config.mixup_weight
+        # if self.config.do_mixup and labels is not None:
+        #     indices = torch.randperm(logits.size(0))    # 用于打乱样本，同批次内数据进行混合
+        #     beta = np.random.beta(self.config.mixup_alpha, self.config.mixup_alpha)
+        #     spans_embedding = self.head(sequence_output, spans, reutrn_spans_embedding=True)
+        #     # spans_embedding.masked_fill_(spans_mask.unsqueeze(-1).eq(0), value=0.0)
+        #     spans_embedding_mixup = beta * spans_embedding + (1 - beta) * spans_embedding[indices]
+        #     logits_mixup = self.head.classifier(spans_embedding_mixup)  # XXX: biaffine需要感知span，故不用于计算打分
+        #     loss_mixup = beta * self.loss_fct(logits_mixup, labels, spans_mask) + \
+        #         (1 - beta) * self.loss_fct(logits_mixup, labels[indices], spans_mask[indices])
+        #     loss = loss + loss_mixup * self.config.mixup_weight
 
         if not return_dict:
             outputs = (logits, predictions, groundtruths) + outputs[2:]
@@ -2767,10 +2786,49 @@ class Trainer(TrainerBase):
         self.model.zero_grad()  # Reset gradients to zero
         self.global_step += 1
 
+    @torch.no_grad()
+    def teachers_forward(self, batch):
+        pseudo_logits = None
+        for teacher in self.teachers:
+            inputs = self.build_batch_inputs(batch)
+            outputs = teacher(**inputs)
+            pseudo_logits = outputs["logits"] if pseudo_logits is None \
+                else pseudo_logits + outputs["logits"]
+        pseudo_logits = pseudo_logits / len(self.teachers)
+        return pseudo_logits
+
     def train_step(self, step, batch, batch_pl=None, pseudo_weight=1.0):
         outputs = self.train_forward(batch)
-        outputs_pl = self.train_forward(batch_pl) \
-            if batch_pl is not None and pseudo_weight > 0.0 else {"loss": 0.0}
+
+        # >>> pseudo learning
+        outputs_pl = {"loss": 0.0}
+        if batch_pl is not None and pseudo_weight > 0.0:
+            if self.teachers is None:   # hard label from dataset
+                outputs_pl = self.train_forward(batch_pl)
+            else:                       # soft label from teachers
+                batch_pl.pop("labels")
+                loss_fct = nn.KLDivLoss(reduction="none")
+                pseudo_logits_stu = outputs["logits"]
+                pseudo_logits_stu_pl = self.train_forward(batch_pl)["logits"]
+                pseudo_logits_tea = self.teachers_forward(batch)
+                pseudo_logits_tea_pl = self.teachers_forward(batch_pl)
+                pseudo_loss = loss_fct(
+                    F.log_softmax(pseudo_logits_stu / self.opts.pseudo_temperature, dim=-1),
+                    F.softmax(pseudo_logits_tea / self.opts.pseudo_temperature, dim=-1),
+                ) * (self.opts.pseudo_temperature**2)
+                pseudo_pl_loss = loss_fct(
+                    F.log_softmax(pseudo_logits_stu_pl / self.opts.pseudo_temperature, dim=-1),
+                    F.softmax(pseudo_logits_tea_pl / self.opts.pseudo_temperature, dim=-1),
+                ) * (self.opts.pseudo_temperature**2)
+                pseudo_loss_mask = (batch["spans_mask"].to(self.device) > 0) \
+                    .unsqueeze(-1).expand_as(pseudo_logits_stu)
+                pseudo_loss_mask_pl = (batch_pl["spans_mask"].to(self.device) > 0) \
+                    .unsqueeze(-1).expand_as(pseudo_logits_stu_pl)
+                pseudo_loss = pseudo_loss.masked_fill_(~pseudo_loss_mask, 0.).mean()
+                pseudo_pl_loss = pseudo_pl_loss.masked_fill_(~pseudo_loss_mask_pl, 0.).mean()
+                outputs_pl = {"loss": pseudo_loss + pseudo_pl_loss}
+        # <<< pseudo learning <<<
+
         loss = outputs['loss'] + outputs_pl["loss"] * pseudo_weight
         self.train_backward(loss)
         should_save = False
@@ -2846,6 +2904,17 @@ class Trainer(TrainerBase):
                 keys_to_ignore_on_save=self.keys_to_ignore_on_checkpoint_save
             )
         # <<< SWA <<<
+        # >>> pseudo learning >>>
+        self.teachers = None
+        if self.opts.pseudo_teachers_name_or_path is not None:
+            self.logger.info("Initializing teachers for pseudo learning.")
+            self.teachers = []
+            for model_name_or_path in self.opts.pseudo_teachers_name_or_path:
+                teacher = self.model.__class__.from_pretrained(model_name_or_path)
+                teacher.to(self.opts.device)
+                teacher.eval()  # inference mode
+                self.teachers.append(teacher)
+        # <<< pseudo learning <<<
         self.print_summary(len(train_data), num_training_steps)
         self.optimizer.zero_grad()
         seed_everything(self.opts.seed, verbose=False)  # Added here for reproductibility (even between python 2 and 3)
@@ -3168,7 +3237,11 @@ def build_opts():
         group.add_argument("--rdrop_weight", type=float, default=0.3)
         group = parser.add_argument_group(title="pseudo label", description="pseudo label")
         group.add_argument("--max_pseudo_examples", type=int, default=None)
-        group.add_argument("--pseudo_input_file", type=str, default=None)
+        group.add_argument("--pseudo_input_file", type=str, default=None,
+            help="指定伪标签数据路径时，触发hard-label伪标签学习，该文件位于`--data_dir`目录内。")
+        group.add_argument("--pseudo_teachers_name_or_path", type=str, nargs="+", default=None, 
+            help="该参数指定模型路径时，由teachers生成soft-label，仅在`--pseudo_input_file`不为空时生效。")
+        group.add_argument("--pseudo_temperature", type=float, default=2.0)
         group.add_argument("--pseudo_weight", type=float, default=1.0)
         group.add_argument("--pseudo_warmup_start_step", type=int, default=-1)
         group.add_argument("--pseudo_warmup_end_step", type=int, default=-1)
@@ -3474,11 +3547,10 @@ def main(opts):
             model.to(opts.device)
             trainer.model = model
             # trainer.predict(test_data=test_dataset, save_result=True, save_dir=checkpoint)
-            trainer.predict(test_data=test_dataset, save_result=True, save_dir="/home/mw/temp/")
+            # results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
+            results = trainer.predict(test_data=test_dataset, save_result=False, save_dir=checkpoint)
 
             # 保存为样本，用于分析
-            # results = load_pickle(os.path.join(checkpoint, f"test_predict_results.pkl"))
-            results = load_pickle(os.path.join("/home/mw/temp/", f"test_predict_results.pkl"))
             entities = list(chain(*[batch["predictions"] for batch in results]))
             examples = update_example_entities(tokenizer, test_dataset.examples, entities, test_dataset.process_piplines[:-1])
             # with open(os.path.join(checkpoint, "predictions.json"), "w") as f:
