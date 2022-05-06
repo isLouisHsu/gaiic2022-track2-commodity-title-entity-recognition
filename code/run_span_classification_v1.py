@@ -2806,7 +2806,7 @@ class Trainer(TrainerBase):
             if self.teachers is None:   # hard label from dataset
                 outputs_pl = self.train_forward(batch_pl)
             else:                       # soft label from teachers
-                batch_pl.pop("labels")
+                if "labels" in batch_pl: batch_pl.pop("labels")
                 loss_fct = nn.KLDivLoss(reduction="none")
                 pseudo_logits_stu = outputs["logits"]
                 pseudo_logits_stu_pl = self.train_forward(batch_pl)["logits"]

@@ -8,4 +8,5 @@ data/public_data/*
 data/submission/*
 data/tmp_data/*
 code/nohup.out
+code/run.sh
 !.gitkeep
