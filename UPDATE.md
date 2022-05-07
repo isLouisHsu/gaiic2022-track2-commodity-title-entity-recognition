@@ -4,6 +4,10 @@
 
 ## 更新
 
+### 2022/5/7
+1. `nezha-100k-spanv1-datas2v1.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.4-lsr0.01-pseuv0`，线下0.8136；
+2. `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.4-lsr0.01-swav0`，线下0.8132，swa0.8135；
+
 ### 2022/5/6
 1. 新增伪标签学习/蒸馏；
 2. `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.4-lsr0.01`线下0.8136；
