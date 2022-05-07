@@ -8,14 +8,18 @@ import json
 sys.path.append("code/")
 from packages import Argparser, is_apex_available
 
+# WARNING: 统一采用绝对路径！！
 def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1, 
-    model_path="data/best_model/gaiic_nezha_nezha-4gram-200k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs8x2-sinusoidal-biaffine-fgm1.0-rdrop0.3",
+    model_path="/home/mw/project/data/best_model/gmodel_spancls_20220505065060",
     submit_result_file="/home/mw/project/results.txt"
 ):
     basename, ext = os.path.splitext(os.path.basename(path_word))
     json_file = glob.glob(os.path.join(model_path, "*_opts.json"))[0]
     opts = Argparser.parse_args_from_json(json_file=json_file)
-    opts.output_dir = os.path.join("../", model_path)
+    model_path = os.path.abspath(model_path)
+    opts.output_dir = model_path
+    opts.pretrained_model_path = model_path
+    opts.checkpoint_predict_code = ""   # 线上只有一级目录
     opts.do_train = False
     opts.do_eval = False
     opts.do_predict = True
@@ -38,8 +42,7 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     #     print(cmd)
     #     os.system(cmd)
 
-    if not os.path.exists(path_word):
-        path_word = os.path.join("..", path_word)
+    path_word = os.path.abspath(path_word)
     cmd = \
         """
         # sh init.sh
@@ -53,7 +56,7 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
             --n_splits=1 \
             --seed=42
         python run_span_classification_v1.py \
-            ../%s
+            %s
         """ % (path_word, json_file)
     print(cmd)
     os.system(cmd)
