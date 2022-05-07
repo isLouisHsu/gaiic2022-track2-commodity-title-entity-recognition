@@ -80,6 +80,7 @@ from packages import (
     is_file,
     find_all_checkpoints,
     seed_everything,
+    TRAINER_STATE_NAME,
 )
 from tokenization_bert_zh import BertTokenizerZh
 from utils import get_spans_bio, check_example, get_synonym
@@ -1824,6 +1825,7 @@ class SpanClassificationHead(nn.Module):
             # entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
             # entities = cls.drop_overlap_baseline(entities)
             entities = cls.drop_overlap_nms(entities)
+            # entities = cls.drop_overlap_rule(entities)
             entities = [entity[:-1] for entity in entities]
             decode_entities.append(entities)
 
@@ -1879,6 +1881,36 @@ class SpanClassificationHead(nn.Module):
         
         entities = [entities[idx] for idx in keep]
         return entities
+
+    @classmethod
+    def drop_overlap_rule(cls, entities):
+        if len(entities) == 0: return []
+        entities = sorted(entities, key=lambda x: (x[0], x[0] - x[1]))
+
+        is_intersect = lambda a, b: min(a[1], b[1]) - max(a[0], b[0]) > 0
+        is_a_included_by_b = lambda a, b: min(a[1], b[1]) - max(a[0], b[0]) == a[1] - a[0]
+        is_length_le_n = lambda x, n: x[1] - x[0] < n
+        is_contain_special_char = lambda x: any([c in text[x[0]: x[1]] for c in ["，", "。", "、", ",", ".", ]])
+
+        kept_entities = []
+        for i, (start, end, label, score) in enumerate(entities):
+            if i == 0 or not is_intersect(kept_entities[-1], entities[i]):
+                kept_entities.append((start, end, label, score))
+                continue
+
+            last_start, last_end, last_label, last_score = kept_entities[-1]
+            length, last_length = end - start, last_end - last_start
+            if is_intersect((start, end), (last_start, last_end)):
+                if label == last_label: # 同类型重叠下保留长
+                    # TODO: score
+                    if length > last_length:
+                        kept_entities.pop(-1)
+                        kept_entities.append(entities[i])
+                else:
+                    if score > last_score:
+                        kept_entities.pop(-1)
+                        kept_entities.append(entities[i])
+        return kept_entities
 
 class SpanClassificationLoss(nn.Module):
 
@@ -2910,7 +2942,9 @@ class Trainer(TrainerBase):
             self.logger.info("Initializing teachers for pseudo learning.")
             self.teachers = []
             for model_name_or_path in self.opts.pseudo_teachers_name_or_path:
-                teacher = self.model.__class__.from_pretrained(model_name_or_path)
+                teacher_opts = torch.load(os.path.join(model_name_or_path, TRAINER_STATE_NAME))["opts"]
+                _, teacher_model_class, _ = MODEL_CLASSES[teacher_opts.model_type]
+                teacher = teacher_model_class.from_pretrained(model_name_or_path)
                 teacher.to(self.opts.device)
                 teacher.eval()  # inference mode
                 self.teachers.append(teacher)
@@ -3297,15 +3331,15 @@ def update_example_entities(tokenizer, examples, entities, processes=[]):
 def entities_to_ner_tags(sequence_length, entities):
     ner_tags = ["O"] * sequence_length
     for start, end, label, *_ in entities:
-        # >>> global pointer baseline >>>
-        # https://github.com/DataArk/GAIIC2022-Product-Title-Entity-Recognition-Baseline/blob/main/code/baseline.ipynb
-        if 'I' in ner_tags[start]:
-            continue
-        if 'B' in ner_tags[start] and 'O' not in ner_tags[end - 1]:
-            continue
-        if 'O' in ner_tags[start] and 'B' in ner_tags[end - 1]:
-            continue
-        # <<< global pointer baseline <<<
+        # # >>> global pointer baseline >>>
+        # # https://github.com/DataArk/GAIIC2022-Product-Title-Entity-Recognition-Baseline/blob/main/code/baseline.ipynb
+        # if 'I' in ner_tags[start]:
+        #     continue
+        # if 'B' in ner_tags[start] and 'O' not in ner_tags[end - 1]:
+        #     continue
+        # if 'O' in ner_tags[start] and 'B' in ner_tags[end - 1]:
+        #     continue
+        # # <<< global pointer baseline <<<
         for i in range(start, end):
             if i == start:
                 tag = f"B-{label}"
