@@ -697,3 +697,92 @@ python run_span_classification_v1.py \
 # 2022-05-08 00:48:20 - INFO - root -   eval_f1_micro_all_entity_fy = 0.8403
 # 2022-05-08 00:48:20 - INFO - root -   eval_f1_micro_without_label_entity = 0.9035
 # 2022-05-08 00:48:20 - INFO - root -   eval_loss = 0.0104
+
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.4-lsr0.01 \
+    --task_name=gaiic \
+    --model_type=nezhagp \
+    --pretrained_model_path=../data/pretrain_model/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=../data/tmp_data/stage2-v0/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_B.jsonl \
+    --do_lower_case \
+    --output_dir=../data/model_data/ \
+    --do_train --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=2 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.01 \
+    --num_train_epochs=6 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --classifier_dropout=0.3 \
+    --negative_sampling=0.0 \
+    --use_rope --pe_dim=64 --pe_max_len=512 \
+    --label_smoothing=0.01 \
+    --decode_thresh=0.0 \
+    --use_sinusoidal_width_embedding \
+    --adv_enable --adv_epsilon=1.0 \
+    --do_rdrop --rdrop_weight=0.4 \
+    --seed=42 \
+    --fp16
+# 2022-05-08 13:49:28 - INFO - root -   eval_f1_micro_all_entity = 0.8134
+# 2022-05-08 13:49:28 - INFO - root -   eval_f1_micro_all_entity_fx = 0.865
+# 2022-05-08 13:49:28 - INFO - root -   eval_f1_micro_all_entity_fy = 0.8411
+# 2022-05-08 13:49:28 - INFO - root -   eval_f1_micro_without_label_entity = 0.9037
+# 2022-05-08 13:49:28 - INFO - root -   eval_loss = 0.1054
+
+python run_span_classification_v1.py \
+    --experiment_code=nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.001-last4mean-lstm2-dropout0.3-span128-e8-bs16x1-fgm1.0-rdrop0.4 \
+    --task_name=gaiic \
+    --model_type=nezhagp \
+    --pretrained_model_path=../data/pretrain_model/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
+    --data_dir=../data/tmp_data/stage2-v0/ \
+    --train_input_file=train.0.jsonl \
+    --eval_input_file=dev.0.jsonl \
+    --test_input_file=word_per_line_preliminary_B.jsonl \
+    --do_lower_case \
+    --output_dir=../data/model_data/ \
+    --do_train --do_eval \
+    --evaluate_during_training \
+    --train_max_seq_length=128 \
+    --eval_max_seq_length=128 \
+    --test_max_seq_length=128 \
+    --per_gpu_train_batch_size=16 \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_test_batch_size=16 \
+    --gradient_accumulation_steps=1 \
+    --learning_rate=3e-5 \
+    --other_learning_rate=1e-3 \
+    --weight_decay=0.001 \
+    --num_train_epochs=8 \
+    --checkpoint_mode=max \
+    --checkpoint_monitor=eval_f1_micro_all_entity \
+    --checkpoint_save_best \
+    --checkpoint_predict_code=checkpoint-eval_f1_micro_all_entity-best \
+    --max_span_length=128 \
+    --classifier_dropout=0.3 \
+    --use_last_n_layers=4 --agg_last_n_layers=mean \
+    --do_lstm --num_lstm_layers=2 --lstm_dropout=0.5 \
+    --use_rope --pe_dim=64 --pe_max_len=512 \
+    --loss_type=ce \
+    --decode_thresh=0.0 \
+    --adv_enable --adv_type=fgm --adv_epsilon=1.0 \
+    --do_rdrop --rdrop_weight=0.4 \
+    --seed=42 \
+    --fp16
+# 2022-05-08 16:13:16 - INFO - root -   eval_f1_micro_all_entity = 0.8127
+# 2022-05-08 16:13:16 - INFO - root -   eval_f1_micro_all_entity_fx = 0.8643
+# 2022-05-08 16:13:16 - INFO - root -   eval_f1_micro_all_entity_fy = 0.8405
+# 2022-05-08 16:13:16 - INFO - root -   eval_f1_micro_without_label_entity = 0.9035
+# 2022-05-08 16:13:16 - INFO - root -   eval_loss = 0.0087

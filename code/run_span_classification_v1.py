@@ -2053,7 +2053,8 @@ class ModelForSpanClassification(PreTrainedModel):
         
         if config.do_lstm:
             self.lstm = nn.LSTM(config.hidden_size, config.hidden_size // 2, 
-                num_layers=config.num_lstm_layers, batch_first=True, bidirectional=True)
+                num_layers=config.num_lstm_layers, batch_first=True, 
+                dropout=config.lstm_dropout, bidirectional=True)
 
         if config.use_syntactic:
             self.syntactic_upos_embeddings = nn.Embedding(config.syntactic_upos_size, config.hidden_size)
@@ -2630,7 +2631,7 @@ class SpanClassificationHeadGP(SpanClassificationMixin):
         self.linear = nn.Linear(hidden_size, num_labels * pe_dim * 2)
         self.pe = PositionalEncoding(d_model=pe_dim, max_len=pe_max_len)
 
-    def forward(self, sequence_output, spans):
+    def forward(self, sequence_output, attention_mask, spans):
         batch_size, sequence_length, hidden_size = sequence_output.size()
         # (batch_size, seq_len, num_labels * pe_dim * 2)
         sequence_output = self.linear(sequence_output)
@@ -2675,7 +2676,8 @@ class ModelForSpanClassificationGP(PreTrainedModel):
 
         if config.do_lstm:
             self.lstm = nn.LSTM(config.hidden_size, config.hidden_size // 2, 
-                num_layers=config.num_lstm_layers, batch_first=True, bidirectional=True)
+                num_layers=config.num_lstm_layers, batch_first=True, 
+                dropout=config.lstm_dropout, bidirectional=True)
 
         self.head = self.head_class(
             config.hidden_size, config.num_labels,
@@ -2789,7 +2791,7 @@ class ModelForSpanClassificationGP(PreTrainedModel):
             sequence_output = sequence_output + unpacked_sequence_output
 
         sequence_output = self.dropout(sequence_output)
-        logits = self.head(sequence_output, spans)          # (batch_size, num_spans, num_labels)
+        logits = self.head(sequence_output, attention_mask, spans)          # (batch_size, num_spans, num_labels)
 
         predictions = None
         if not self.training:
@@ -3550,11 +3552,11 @@ def build_opts():
         group.add_argument("--max_train_examples", type=int, default=None)
         group.add_argument("--max_eval_examples", type=int, default=None)
         group.add_argument("--max_test_examples", type=int, default=None)
+        group.add_argument("--max_span_length", type=int, default=512)
         group = parser.add_argument_group(title="WeightedLayerPooling", description="WeightedLayerPooling")
         group.add_argument("--use_last_n_layers", type=int, default=None)
         group.add_argument("--agg_last_n_layers", type=str, default="mean")
         group = parser.add_argument_group(title="SpanClassificationHead", description="SpanClassificationHead")
-        group.add_argument("--max_span_length", type=int, default=30)
         group.add_argument("--width_embedding_size", type=int, default=128)
         group.add_argument("--do_projection", action="store_true")
         group.add_argument("--do_cln", action="store_true")
@@ -3572,6 +3574,7 @@ def build_opts():
         group.add_argument("--use_sinusoidal_width_embedding", action="store_true")
         group.add_argument("--do_lstm", action="store_true")
         group.add_argument("--num_lstm_layers", type=int, default=1)
+        group.add_argument("--lstm_dropout", type=float, default=0.0)
         group.add_argument("--use_syntactic", action="store_true")
         group.add_argument("--syntactic_upos_size", type=int, default=21)
         group.add_argument("--mc_dropout_rate", type=float, default=None)
@@ -3773,6 +3776,7 @@ def main(opts):
         classifier_dropout=opts.classifier_dropout, 
         do_lstm=opts.do_lstm, 
         num_lstm_layers=opts.num_lstm_layers,
+        lstm_dropout=opts.lstm_dropout,
         loss_type=opts.loss_type,
         label_smoothing=opts.label_smoothing, 
         focal_gamma=opts.focal_gamma,
