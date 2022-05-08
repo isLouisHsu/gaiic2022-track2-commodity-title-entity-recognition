@@ -11,13 +11,15 @@ from packages import Argparser, is_apex_available
 # WARNING: 统一采用绝对路径！！
 def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1, 
     # model_path="/home/mw/project/data/best_model/gmodel_spancls_20220505065060",
-    model_path="/home/mw/project/data/best_model/gmodel_spancls_202205077213",
+    # model_path="/home/mw/project/data/best_model/gmodel_spancls_202205077213",
+    model_path="/home/mw/project/data/best_model/gmodel_gpswa_202205089550",
     submit_result_file="/home/mw/project/results.txt"
 ):
     basename, ext = os.path.splitext(os.path.basename(path_word))
+    model_path = os.path.abspath(model_path)
+    print(model_path); os.system("ls %s" % model_path)
     json_file = glob.glob(os.path.join(model_path, "*_opts.json"))[0]
     opts = Argparser.parse_args_from_json(json_file=json_file)
-    model_path = os.path.abspath(model_path)
     opts.output_dir = model_path
     opts.pretrained_model_path = model_path
     opts.checkpoint_predict_code = ""   # 线上只有一级目录

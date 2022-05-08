@@ -9,6 +9,7 @@
 2. 线上预训练`gmodel_nezha_cn_base_gaiic_1.392`；
 3. `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.4-lsr0.01`，线下0.8134，精确率与召回率相近；
 4. `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.001-last4mean-lstm2-dropout0.3-span128-e8-bs16x1-fgm1.0-rdrop0.4`，线下0.8127；
+5. 提交线上`gmodel_gpswa_202205089550`，0.8135456792962686；
 
 ### 2022/5/7
 1. `nezha-100k-spanv1-datas2v1.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.4-lsr0.01-pseuv0`，线下0.8136；
