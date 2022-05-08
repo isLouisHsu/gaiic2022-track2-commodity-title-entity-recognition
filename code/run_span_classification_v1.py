@@ -1562,9 +1562,158 @@ class XBiaffineRel(nn.Module):
             output = output + self.bias
         return output
 
-class SpanClassificationHead(nn.Module):
+class SpanClassificationMixin(nn.Module):
 
-    def __init__(self, hidden_size, num_labels, max_span_length, width_embedding_size,
+    def __init__(self):
+        super().__init__()
+
+    @classmethod
+    def batched_index_select(cls, input, index):
+        batch_size, sequence_length, hidden_size = input.size()
+        index_onehot = F.one_hot(index, num_classes=sequence_length).float()
+        output = torch.bmm(index_onehot, input)
+        return output
+
+    @classmethod
+    def batched_index_select_2d(cls, input, index):
+        return output   # TODO:
+
+    @classmethod
+    def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
+        other_id = label2id["O"]
+        if is_logits:
+            probas = logits_or_labels.softmax(dim=-1)
+            # TODO: 这题不利于提高召回率，应确保精确率为主。
+            #       因为当分词出现错误时，同时降低准确率、召回率，而直接预测为非实体，仅降低召回率。
+            # probas, labels = probas.max(dim=-1)     # 实体类别概率
+            _, labels = probas.max(dim=-1)
+            probas = 1 - probas[..., other_id]      # 是实体的概率
+            labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX),      # 提精度
+                torch.full_like(labels, other_id), labels)
+            # ---
+            # probas[..., other_id] = torch.where(probas[..., other_id] < thresh,
+            #     torch.zeros_like(probas[..., other_id]), probas[..., other_id])     # 提召回
+            # # probas, labels = probas.max(dim=-1) # TODO: 实体类别概率
+            # _, labels = probas.max(dim=-1)
+            # probas = 1 - probas[..., other_id]  # 是实体的概率
+
+            # 无27、45两类
+            labels[labels == 27] = other_id
+            labels[labels == 45] = other_id
+        else:
+            probas, labels = torch.ones_like(logits_or_labels), logits_or_labels    # (batch_size, sequence_length)
+
+        batch_size = logits_or_labels.size(0)
+        labels = [[id2label.get(id, "O") for id in ids] for ids in labels.cpu().numpy().tolist()]
+        probas = probas.cpu().numpy().tolist()
+        spans = spans.cpu().numpy().tolist()
+        spans_mask = spans_mask.cpu().numpy().tolist()
+
+        decode_entities = []
+        for i in range(batch_size):
+            entities = []
+            sent_start = float("inf")
+            for span, mask, label, proba in zip(spans[i], spans_mask[i], labels[i], probas[i]):
+                if mask == 0: break
+                start, end = span       # 左闭右闭
+                sent_start = min(sent_start, start)
+                if label == "O": continue
+                start -= sent_start; end -= sent_start
+                entities.append((start, end + 1, label, proba))   # 左闭右开
+            # entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
+            # entities = cls.drop_overlap_baseline(entities)
+            entities = cls.drop_overlap_nms(entities)
+            # entities = cls.drop_overlap_rule(entities)
+            entities = [entity[:-1] for entity in entities]
+            decode_entities.append(entities)
+
+        return decode_entities
+    
+    @classmethod
+    def drop_overlap_baseline(cls, entities):
+        if len(entities) == 0: return []
+        entities = sorted(entities, key=lambda x: (x[0], x[0] - x[1]))
+        sequence_length = max([entity[1] for entity in entities])
+        ner_tags = entities_to_ner_tags(sequence_length, entities)
+        spans = get_spans_bio(ner_tags)
+        entities = [(start, end + 1, label, 0.0) for label, start, end in spans]
+        return entities
+    
+    @classmethod
+    def drop_overlap_nms(cls, entities):
+        """
+        Parameters
+        ----------
+            entities: List[Tuple[int, int, str, float]]
+
+        Return
+        ------
+            entities: List[Tuple[int, int, str, float]]
+
+        Notes
+        -----
+            - 简化iou计算，仅计算重叠长度；
+            - 未考虑标签，若需对同类别实体去重，则在传入该函数前处理；
+        """
+        if len(entities) == 0: return []
+        
+        X = np.array(entities)
+        starts = X[:, 0].astype(np.int)
+        ends   = X[:, 1].astype(np.int)
+        scores = X[:, 3].astype(np.float)
+        order = scores.argsort()[::-1]
+
+        keep = []
+        while order.size > 0:
+            i = order[0]
+            # 保留得分最高的一个
+            keep.append(i)
+            # 计算相交区间
+            starts_ = np.maximum(starts[i], starts[order[1:]])
+            ends_   = np.minimum(ends  [i], ends  [order[1:]])
+            # 计算相交长度
+            inter = np.maximum(0, ends_ - starts_)
+            # 保留不相交实体
+            indices = np.where(inter <= 0)[0]
+            order = order[indices + 1]
+        
+        entities = [entities[idx] for idx in keep]
+        return entities
+
+    @classmethod
+    def drop_overlap_rule(cls, entities):
+        if len(entities) == 0: return []
+        entities = sorted(entities, key=lambda x: (x[0], x[0] - x[1]))
+
+        is_intersect = lambda a, b: min(a[1], b[1]) - max(a[0], b[0]) > 0
+        is_a_included_by_b = lambda a, b: min(a[1], b[1]) - max(a[0], b[0]) == a[1] - a[0]
+        is_length_le_n = lambda x, n: x[1] - x[0] < n
+        is_contain_special_char = lambda x: any([c in text[x[0]: x[1]] for c in ["，", "。", "、", ",", ".", ]])
+
+        kept_entities = []
+        for i, (start, end, label, score) in enumerate(entities):
+            if i == 0 or not is_intersect(kept_entities[-1], entities[i]):
+                kept_entities.append((start, end, label, score))
+                continue
+
+            last_start, last_end, last_label, last_score = kept_entities[-1]
+            length, last_length = end - start, last_end - last_start
+            if is_intersect((start, end), (last_start, last_end)):
+                if label == last_label: # 同类型重叠下保留长
+                    # TODO: score
+                    if length > last_length:
+                        kept_entities.pop(-1)
+                        kept_entities.append(entities[i])
+                else:
+                    if score > last_score:
+                        kept_entities.pop(-1)
+                        kept_entities.append(entities[i])
+        return kept_entities
+
+class SpanClassificationHead(SpanClassificationMixin):
+
+    def __init__(self, hidden_size, num_labels, 
+                 max_span_length, width_embedding_size,
                  do_projection=False, do_cln=False, do_biaffine=False, 
                  do_co_attention=False, extract_method="endpoint"):
         super().__init__()
@@ -1773,145 +1922,6 @@ class SpanClassificationHead(nn.Module):
 
         return logits   # TODO:
 
-    @classmethod
-    def batched_index_select(cls, input, index):
-        batch_size, sequence_length, hidden_size = input.size()
-        index_onehot = F.one_hot(index, num_classes=sequence_length).float()
-        output = torch.bmm(index_onehot, input)
-        return output
-
-    @classmethod
-    def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
-        other_id = label2id["O"]
-        if is_logits:
-            probas = logits_or_labels.softmax(dim=-1)
-            # TODO: 这题不利于提高召回率，应确保精确率为主。
-            #       因为当分词出现错误时，同时降低准确率、召回率，而直接预测为非实体，仅降低召回率。
-            # probas, labels = probas.max(dim=-1)     # 实体类别概率
-            _, labels = probas.max(dim=-1)
-            probas = 1 - probas[..., other_id]      # 是实体的概率
-            labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX),      # 提精度
-                torch.full_like(labels, other_id), labels)
-            # ---
-            # probas[..., other_id] = torch.where(probas[..., other_id] < thresh,
-            #     torch.zeros_like(probas[..., other_id]), probas[..., other_id])     # 提召回
-            # # probas, labels = probas.max(dim=-1) # TODO: 实体类别概率
-            # _, labels = probas.max(dim=-1)
-            # probas = 1 - probas[..., other_id]  # 是实体的概率
-
-            # 无27、45两类
-            labels[labels == 27] = other_id
-            labels[labels == 45] = other_id
-        else:
-            probas, labels = torch.ones_like(logits_or_labels), logits_or_labels    # (batch_size, sequence_length)
-
-        batch_size = logits_or_labels.size(0)
-        labels = [[id2label.get(id, "O") for id in ids] for ids in labels.cpu().numpy().tolist()]
-        probas = probas.cpu().numpy().tolist()
-        spans = spans.cpu().numpy().tolist()
-        spans_mask = spans_mask.cpu().numpy().tolist()
-
-        decode_entities = []
-        for i in range(batch_size):
-            entities = []
-            sent_start = float("inf")
-            for span, mask, label, proba in zip(spans[i], spans_mask[i], labels[i], probas[i]):
-                if mask == 0: break
-                start, end = span       # 左闭右闭
-                sent_start = min(sent_start, start)
-                if label == "O": continue
-                start -= sent_start; end -= sent_start
-                entities.append((start, end + 1, label, proba))   # 左闭右开
-            # entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
-            # entities = cls.drop_overlap_baseline(entities)
-            entities = cls.drop_overlap_nms(entities)
-            # entities = cls.drop_overlap_rule(entities)
-            entities = [entity[:-1] for entity in entities]
-            decode_entities.append(entities)
-
-        return decode_entities
-    
-    @classmethod
-    def drop_overlap_baseline(cls, entities):
-        if len(entities) == 0: return []
-        entities = sorted(entities, key=lambda x: (x[0], x[0] - x[1]))
-        sequence_length = max([entity[1] for entity in entities])
-        ner_tags = entities_to_ner_tags(sequence_length, entities)
-        spans = get_spans_bio(ner_tags)
-        entities = [(start, end + 1, label, 0.0) for label, start, end in spans]
-        return entities
-    
-    @classmethod
-    def drop_overlap_nms(cls, entities):
-        """
-        Parameters
-        ----------
-            entities: List[Tuple[int, int, str, float]]
-
-        Return
-        ------
-            entities: List[Tuple[int, int, str, float]]
-
-        Notes
-        -----
-            - 简化iou计算，仅计算重叠长度；
-            - 未考虑标签，若需对同类别实体去重，则在传入该函数前处理；
-        """
-        if len(entities) == 0: return []
-        
-        X = np.array(entities)
-        starts = X[:, 0].astype(np.int)
-        ends   = X[:, 1].astype(np.int)
-        scores = X[:, 3].astype(np.float)
-        order = scores.argsort()[::-1]
-
-        keep = []
-        while order.size > 0:
-            i = order[0]
-            # 保留得分最高的一个
-            keep.append(i)
-            # 计算相交区间
-            starts_ = np.maximum(starts[i], starts[order[1:]])
-            ends_   = np.minimum(ends  [i], ends  [order[1:]])
-            # 计算相交长度
-            inter = np.maximum(0, ends_ - starts_)
-            # 保留不相交实体
-            indices = np.where(inter <= 0)[0]
-            order = order[indices + 1]
-        
-        entities = [entities[idx] for idx in keep]
-        return entities
-
-    @classmethod
-    def drop_overlap_rule(cls, entities):
-        if len(entities) == 0: return []
-        entities = sorted(entities, key=lambda x: (x[0], x[0] - x[1]))
-
-        is_intersect = lambda a, b: min(a[1], b[1]) - max(a[0], b[0]) > 0
-        is_a_included_by_b = lambda a, b: min(a[1], b[1]) - max(a[0], b[0]) == a[1] - a[0]
-        is_length_le_n = lambda x, n: x[1] - x[0] < n
-        is_contain_special_char = lambda x: any([c in text[x[0]: x[1]] for c in ["，", "。", "、", ",", ".", ]])
-
-        kept_entities = []
-        for i, (start, end, label, score) in enumerate(entities):
-            if i == 0 or not is_intersect(kept_entities[-1], entities[i]):
-                kept_entities.append((start, end, label, score))
-                continue
-
-            last_start, last_end, last_label, last_score = kept_entities[-1]
-            length, last_length = end - start, last_end - last_start
-            if is_intersect((start, end), (last_start, last_end)):
-                if label == last_label: # 同类型重叠下保留长
-                    # TODO: score
-                    if length > last_length:
-                        kept_entities.pop(-1)
-                        kept_entities.append(entities[i])
-                else:
-                    if score > last_score:
-                        kept_entities.pop(-1)
-                        kept_entities.append(entities[i])
-        return kept_entities
-
 class SpanClassificationLoss(nn.Module):
 
     def __init__(
@@ -1991,6 +2001,7 @@ class SpanClassificationOutput(ModelOutput):
     predictions: List[List[Entity]] = None
 
 
+# TODO: 重构为`ModelForSpanClassificationConditional`与`ModelForSpanClassificationSyntactic`
 class ModelForSpanClassification(PreTrainedModel):
 
     head_class = SpanClassificationHead
@@ -2514,6 +2525,280 @@ class NeZhaForSpanClassificationXY(NeZhaPreTrainedModel, ModelForSpanClassificat
         self.bert = NeZhaModel(config)
         self.init_weights()
 
+class WeightedLayerPooling(nn.Module):
+    # https://www.kaggle.com/code/rhtsingh/utilizing-transformer-representations-efficiently/notebook
+
+    def __init__(self, use_last_n_layers: int = None, agg_last_n_layers: str = "mean"):
+        super().__init__()
+
+        self.use_last_n_layers = use_last_n_layers
+        self.agg_last_n_layers = agg_last_n_layers
+    
+    def forward(self, outputs):
+        if self.use_last_n_layers is None or outputs["hidden_states"] is None:
+            return outputs["last_hidden_state"]
+
+        hidden_states = outputs["hidden_states"]
+        hidden_states = torch.stack(hidden_states[- self.use_last_n_layers: ], dim=-1)
+        batch_size, sequence_length, hidden_size, num_layers = hidden_states.size()
+        
+        if self.agg_last_n_layers == "mean":
+            hidden_states = torch.mean(hidden_states, dim=-1)
+        elif self.agg_last_n_layers == "sum":
+            hidden_states = torch.sum(hidden_states, dim=-1)
+        elif self.agg_last_n_layers == "max":
+            hidden_states = torch.max(hidden_states, dim=-1)[0]
+        elif self.agg_last_n_layers == "cat":
+            hidden_states = hidden_states.view(batch_size, sequence_length, -1)
+        elif self.agg_last_n_layers == "wkpooling":
+            # https://github.com/BinWang28/SBERT-WK-Sentence-Embedding
+            raise NotImplementedError
+        else:
+            raise ValueError
+        
+        return hidden_states
+
+class PositionalEncoding(nn.Module):
+    r"""Inject some information about the relative or absolute position of the tokens
+        in the sequence. The positional encodings have the same dimension as
+        the embeddings, so that the two can be summed. Here, we use sine and cosine
+        functions of different frequencies.
+    .. math::
+        \text{PosEncoder}(pos, 2i) = sin(pos/10000^(2i/d_model))
+        \text{PosEncoder}(pos, 2i+1) = cos(pos/10000^(2i/d_model))
+        \text{where pos is the word position and i is the embed idx)
+    """
+
+    def __init__(self, d_model, max_len=512):
+        super(PositionalEncoding, self).__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, batch_size, seq_length):
+        r"""Inputs of forward function
+        Args:
+            x: the sequence fed to the positional encoder model (required).
+        Shape:
+            x: [ batch size,sequence length, embed dim]
+            output: [batch size,sequence length,  embed dim]
+        """
+        return self.pe[:seq_length, :].repeat((batch_size, *([1] * len(self.pe.shape))))
+
+class SpanClassificationHeadGP(SpanClassificationMixin):
+
+    def __init__(self, hidden_size, num_labels, pe_dim, use_rope, pe_max_len, **kwargs):
+        super().__init__()
+        self.num_labels = num_labels
+        self.pe_dim = pe_dim
+        self.use_rope = use_rope
+        self.linear = nn.Linear(hidden_size, num_labels * pe_dim * 2)
+        self.pe = PositionalEncoding(d_model=pe_dim, max_len=pe_max_len)
+
+    def forward(self, sequence_output, attention_mask, spans):
+        batch_size, sequence_length, hidden_size = sequence_output.size()
+        # (batch_size, seq_len, num_labels * pe_dim * 2)
+        sequence_output = self.linear(sequence_output)
+        # query, key: (batch_size, seq_len, num_labels, pe_dim * 2)
+        sequence_output = sequence_output.view(batch_size, sequence_length, self.num_labels, -1)
+        # query, key: (batch_size, seq_len, num_labels, pe_dim)
+        query, key = sequence_output[..., :self.pe_dim], sequence_output[..., self.pe_dim:]
+
+        if self.use_rope:
+            pos_emb = self.pe(batch_size, sequence_length)
+            cos_pos = pos_emb[..., None, 1::2].repeat_interleave(2, dim=-1)
+            sin_pos = pos_emb[..., None, ::2].repeat_interleave(2, dim=-1)
+            qw2 = torch.stack([-query[..., 1::2], query[..., ::2]], -1)
+            qw2 = qw2.reshape(query.shape)
+            query = query * cos_pos + qw2 * sin_pos
+            kw2 = torch.stack([-key[..., 1::2], key[..., ::2]], -1)
+            kw2 = kw2.reshape(key.shape)
+            key = key * cos_pos + kw2 * sin_pos
+
+        # (batch_size, num_labels, sequence_length, sequence_length)
+        logits = torch.einsum('bmcd,bncd->bcmn', query, key)
+        extended_attention_mask = attention_mask[:, None, None, :] * \
+            torch.triu(torch.ones_like(logits))
+        extended_attention_mask = (1.0 - extended_attention_mask) * -1e12
+        logits += extended_attention_mask
+        logits /= self.pe_dim ** 0.5
+
+        # (batch_size, num_spans, num_labels)
+        logits = self.batched_index_select_2d(logits, spans)
+
+        return logits
+
+class ModelForSpanClassificationGP(PreTrainedModel):
+
+    head_class = SpanClassificationHeadGP
+    loss_class = SpanClassificationLoss
+    rdrop_loss_clsss = SpanClassificationRDropLoss
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.dropout = nn.Dropout(config.classifier_dropout if hasattr(
+            config, "classifier_dropout") else config.hidden_dropout_prob)
+        
+        self.weighted_layer_pooling = WeightedLayerPooling(
+            self.config.use_last_n_layers, self.config.agg_last_n_layers)
+
+        if config.do_lstm:
+            self.lstm = nn.LSTM(config.hidden_size, config.hidden_size // 2, 
+                num_layers=config.num_lstm_layers, batch_first=True, bidirectional=True)
+
+        self.head = self.head_class(
+            config.hidden_size, config.num_labels,
+            config.pe_dim, config.use_rope, config.pe_max_len,
+        )
+
+        self.loss_fct = self.loss_class(
+            num_labels=config.num_labels, 
+            loss_type=config.loss_type,
+            label_smoothing_eps=config.label_smoothing,
+            focal_gamma=config.focal_gamma,
+            focal_alpha=config.focal_alpha,
+            reduction="mean",
+            ignore_index=IGNORE_INDEX,
+        )
+
+        if config.do_rdrop:
+            self.rdrop_loss_func = self.rdrop_loss_clsss()
+    
+    def _forward_rdrop(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        syntactic_upos_ids=None,
+        conditional_ids=None,
+        spans=None,
+        spans_mask=None,
+        labels=None,
+        return_dict=None,
+    ):
+        outputs1 = self(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            syntactic_upos_ids=syntactic_upos_ids,
+            conditional_ids=conditional_ids,
+            spans=spans,
+            spans_mask=spans_mask,
+            labels=labels,
+            rdrop_forward=True,
+            return_dict=return_dict,
+        )
+        outputs2 = self(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            syntactic_upos_ids=syntactic_upos_ids,
+            conditional_ids=conditional_ids,
+            spans=spans,
+            spans_mask=spans_mask,
+            labels=labels,
+            rdrop_forward=True,
+            return_dict=return_dict,
+        )
+        loss = (outputs1["loss"] + outputs2["loss"]) / 2. + \
+            self.config.rdrop_weight * self.rdrop_loss_func(
+                outputs1["logits"], outputs2["logits"], spans_mask)
+        return SpanClassificationOutput(
+            loss=loss,
+            logits=outputs1["logits"],
+            predictions=outputs1["predictions"],
+            groundtruths=outputs1["groundtruths"],
+        )
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        syntactic_upos_ids=None,
+        conditional_ids=None,
+        spans=None,
+        spans_mask=None,
+        labels=None,
+        rdrop_forward=False,
+        return_dict=None,
+    ):
+        if self.config.do_rdrop and (not rdrop_forward) and self.training and (labels is not None):
+            return self._forward_rdrop(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                syntactic_upos_ids=syntactic_upos_ids,
+                conditional_ids=conditional_ids,
+                spans=spans,
+                spans_mask=spans_mask,
+                labels=labels,
+                return_dict=return_dict,
+            )
+
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        output_hidden_states = self.config.use_last_n_layers is not None
+    
+        outputs = self.base_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        sequence_output = self.weighted_layer_pooling(outputs)
+
+        if self.config.do_lstm:
+            sequence_lengths = attention_mask.sum(dim=1)
+            packed_sequence_output = pack_padded_sequence(
+                sequence_output, sequence_lengths.cpu(), batch_first=True, enforce_sorted=False)
+            packed_sequence_output, _ = self.lstm(packed_sequence_output)
+            unpacked_sequence_output, _ = pad_packed_sequence(
+                packed_sequence_output, batch_first=True, total_length=sequence_lengths.max())
+            sequence_output = sequence_output + unpacked_sequence_output
+
+        sequence_output = self.dropout(sequence_output)
+        logits = self.head(sequence_output, spans)          # (batch_size, num_spans, num_labels)
+
+        predictions = None
+        if not self.training:
+            predictions = self.decode(logits, spans, spans_mask, self.config.decode_thresh,
+                                      self.config.label2id, self.config.id2label, is_logits=True)
+
+        loss = None
+        groundtruths = None
+        if labels is not None:
+            loss = self.loss_fct(logits, labels, spans_mask)
+            if not self.training:
+                groundtruths = self.decode(labels, spans, spans_mask, self.config.decode_thresh,
+                                           self.config.label2id, self.config.id2label, is_logits=False)
+
+        if not return_dict:
+            outputs = (logits, predictions, groundtruths) + outputs[2:]
+            return ((loss,) + outputs) if loss is not None else outputs
+
+        return SpanClassificationOutput(
+            loss=loss,
+            logits=logits,
+            predictions=predictions,
+            groundtruths=groundtruths,
+        )
+
+    @classmethod
+    def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
+        return cls.head_class.decode(logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits)
+
+class NeZhaForSpanClassificationGP(NeZhaPreTrainedModel, ModelForSpanClassificationGP):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.bert = NeZhaModel(config)
+        self.init_weights()
 
 def precision_recall_fscore_support(y_true: Union[List[List[str]], List[List[Tuple[int, int, Any]]]],
                                     y_pred: Union[List[List[str]], List[List[Tuple[int, int, Any]]]],
@@ -3210,6 +3495,7 @@ MODEL_CLASSES = {
     "bert": (BertConfig, BertForSpanClassification, BertTokenizerZh),
     "nezha": (BertConfig, NeZhaForSpanClassification, BertTokenizerZh),
     "nezhaxy": (BertConfig, NeZhaForSpanClassificationXY, BertTokenizerZh),
+    "nezhagp": (BertConfig, NeZhaForSpanClassificationGP, BertTokenizerZh),
 }
 
 DATA_CLASSES = {
@@ -3237,24 +3523,30 @@ def build_opts():
         group.add_argument("--max_train_examples", type=int, default=None)
         group.add_argument("--max_eval_examples", type=int, default=None)
         group.add_argument("--max_test_examples", type=int, default=None)
-        group = parser.add_argument_group(title="model-related", description="model-related")
-        group.add_argument("--classifier_dropout", type=float, default=0.1)
+        group = parser.add_argument_group(title="WeightedLayerPooling", description="WeightedLayerPooling")
+        group.add_argument("--use_last_n_layers", type=int, default=None)
+        group.add_argument("--agg_last_n_layers", type=str, default="mean")
+        group = parser.add_argument_group(title="SpanClassificationHead", description="SpanClassificationHead")
         group.add_argument("--max_span_length", type=int, default=30)
         group.add_argument("--width_embedding_size", type=int, default=128)
+        group.add_argument("--do_projection", action="store_true")
+        group.add_argument("--do_cln", action="store_true")
+        group.add_argument("--do_co_attention", action="store_true")
+        group.add_argument("--do_biaffine", action="store_true")
         group.add_argument("--extract_method", type=str, default="endpoint")
+        group = parser.add_argument_group(title="SpanClassificationHead", description="SpanClassificationHead")
+        group.add_argument("--use_rope", action="store_true")
+        group.add_argument("--pe_dim", type=int, default=64)
+        group.add_argument("--pe_max_len", type=int, default=512)
+        group = parser.add_argument_group(title="model-related", description="model-related")
+        group.add_argument("--classifier_dropout", type=float, default=0.1)
         group.add_argument("--decode_thresh", type=float, default=0.0)
         group.add_argument("--find_best_decode_thresh", action="store_true")
         group.add_argument("--use_sinusoidal_width_embedding", action="store_true")
         group.add_argument("--do_lstm", action="store_true")
         group.add_argument("--num_lstm_layers", type=int, default=1)
-        group.add_argument("--do_projection", action="store_true")
-        group.add_argument("--do_cln", action="store_true")
-        group.add_argument("--do_co_attention", action="store_true")
-        group.add_argument("--do_biaffine", action="store_true")
         group.add_argument("--use_syntactic", action="store_true")
         group.add_argument("--syntactic_upos_size", type=int, default=21)
-        group.add_argument("--use_last_n_layers", type=int, default=None)
-        group.add_argument("--agg_last_n_layers", type=str, default="mean")
         group.add_argument("--mc_dropout_rate", type=float, default=None)
         group.add_argument("--mc_dropout_times", type=int, default=None)
         group.add_argument("--layer_wise_lr_decay", type=float, default=None)
@@ -3432,15 +3724,28 @@ def main(opts):
         num_xlabels=opts.num_xlabels, xid2label=opts.xid2label, xlabel2id=opts.xlabel2id,
         num_ylabels=opts.num_ylabels, yid2label=opts.yid2label, ylabel2id=opts.ylabel2id,
         conditional=False,
-        classifier_dropout=opts.classifier_dropout, 
+        use_syntactic=opts.use_syntactic,
+        syntactic_upos_size=opts.syntactic_upos_size,
         layer_wise_lr_decay=opts.layer_wise_lr_decay,
+        # WeightedLayerPooling
         use_last_n_layers=opts.use_last_n_layers,
         agg_last_n_layers=opts.agg_last_n_layers,
-        negative_sampling=opts.negative_sampling,
+        # SpanClassificationHead
         max_span_length=opts.max_span_length, 
         width_embedding_size=opts.width_embedding_size,
+        do_projection=opts.do_projection,
+        do_cln=opts.do_cln, 
+        do_co_attention=opts.do_co_attention, 
+        do_biaffine=opts.do_biaffine,
+        extract_method=opts.extract_method,
+        # SpanClassificationHeadGP
+        pe_dim=opts.pe_dim, use_rope=opts.use_rope, pe_max_len=opts.pe_max_len,
+        # ModelForSpanClassification
         do_rdrop=opts.do_rdrop,
         rdrop_weight=opts.rdrop_weight,
+        classifier_dropout=opts.classifier_dropout, 
+        do_lstm=opts.do_lstm, 
+        num_lstm_layers=opts.num_lstm_layers,
         loss_type=opts.loss_type,
         label_smoothing=opts.label_smoothing, 
         focal_gamma=opts.focal_gamma,
@@ -3449,15 +3754,6 @@ def main(opts):
         mixup_alpha=opts.mixup_alpha,
         mixup_weight=opts.mixup_weight,
         decode_thresh=opts.decode_thresh,
-        do_lstm=opts.do_lstm, 
-        num_lstm_layers=opts.num_lstm_layers,
-        do_projection=opts.do_projection,
-        do_co_attention=opts.do_co_attention, 
-        do_cln=opts.do_cln, 
-        extract_method=opts.extract_method,
-        do_biaffine=opts.do_biaffine,
-        use_syntactic=opts.use_syntactic,
-        syntactic_upos_size=opts.syntactic_upos_size,
     )
     for key, value in unused_kwargs.items():
         setattr(config, key, value)  # FIXED: 默认`from_dict`中，只有config中有键才能设置值，这里强制设置

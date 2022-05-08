@@ -10,7 +10,8 @@ from packages import Argparser, is_apex_available
 
 # WARNING: 统一采用绝对路径！！
 def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1, 
-    model_path="/home/mw/project/data/best_model/gmodel_spancls_20220505065060",
+    # model_path="/home/mw/project/data/best_model/gmodel_spancls_20220505065060",
+    model_path="/home/mw/project/data/best_model/gmodel_spancls_202205077213",
     submit_result_file="/home/mw/project/results.txt"
 ):
     basename, ext = os.path.splitext(os.path.basename(path_word))
