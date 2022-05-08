@@ -1462,7 +1462,7 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         ),
     ]
     return data_class(data_name, data_dir, data_type, process_piplines, 
-        context_size=context_size, use_cache=True, **kwargs)
+        context_size=context_size, use_cache=False, **kwargs)
 
 
 class CoAttention(nn.Module):
