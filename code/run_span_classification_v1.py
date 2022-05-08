@@ -1569,6 +1569,16 @@ class SpanClassificationMixin(nn.Module):
 
     @classmethod
     def batched_index_select(cls, input, index):
+        """
+        Parameters:
+        -----------
+        input: shape(batch_size, sequence_length, hidden_size)
+        index: shape(batch_size, num_indices)
+
+        Returns:
+        --------
+        output: shape(batch_size, num_indices, hidden_size)
+        """
         batch_size, sequence_length, hidden_size = input.size()
         index_onehot = F.one_hot(index, num_classes=sequence_length).float()
         output = torch.bmm(index_onehot, input)
@@ -1576,7 +1586,29 @@ class SpanClassificationMixin(nn.Module):
 
     @classmethod
     def batched_index_select_2d(cls, input, index):
-        return output   # TODO:
+        """
+        Parameters:
+        -----------
+        input: shape(batch_size, sequence_length, sequence_length, hidden_size)
+        index: shape(batch_size, num_indices, 2)
+
+        Returns:
+        --------
+        output: shape(batch_size, num_indices, hidden_size)
+        """
+        batch_size, sequence_length, _, hidden_size = input.size()
+        batch_size, num_indices, num_dims = index.size()
+        # (batch_size, sequence_length, sequence_length * hidden_size)
+        output = input.contiguous().view(batch_size, sequence_length, -1)
+        # (batch_size, num_indices, sequence_length * hidden_size)
+        output = cls.batched_index_select(output, index[..., 0])
+        # (batch_size * num_indices, sequence_length, hidden_size)
+        output = output.view(-1, sequence_length, hidden_size)
+        # (batch_size * num_indices, 1, hidden_size)
+        output = cls.batched_index_select(output, index[..., 1].view(-1, 1))
+        # (batch_size, num_indices, hidden_size)
+        output = output.squeeze(1).view(batch_size, num_indices, hidden_size)
+        return output
 
     @classmethod
     def decode(cls, logits_or_labels, spans, spans_mask, thresh, label2id, id2label, is_logits=True):
@@ -2598,7 +2630,7 @@ class SpanClassificationHeadGP(SpanClassificationMixin):
         self.linear = nn.Linear(hidden_size, num_labels * pe_dim * 2)
         self.pe = PositionalEncoding(d_model=pe_dim, max_len=pe_max_len)
 
-    def forward(self, sequence_output, attention_mask, spans):
+    def forward(self, sequence_output, spans):
         batch_size, sequence_length, hidden_size = sequence_output.size()
         # (batch_size, seq_len, num_labels * pe_dim * 2)
         sequence_output = self.linear(sequence_output)
@@ -2618,13 +2650,8 @@ class SpanClassificationHeadGP(SpanClassificationMixin):
             kw2 = kw2.reshape(key.shape)
             key = key * cos_pos + kw2 * sin_pos
 
-        # (batch_size, num_labels, sequence_length, sequence_length)
-        logits = torch.einsum('bmcd,bncd->bcmn', query, key)
-        extended_attention_mask = attention_mask[:, None, None, :] * \
-            torch.triu(torch.ones_like(logits))
-        extended_attention_mask = (1.0 - extended_attention_mask) * -1e12
-        logits += extended_attention_mask
-        logits /= self.pe_dim ** 0.5
+        # (batch_size, sequence_length, sequence_length, num_labels)
+        logits = torch.einsum('bmcd,bncd->bmnc', query, key) / (self.pe_dim ** 0.5)
 
         # (batch_size, num_spans, num_labels)
         logits = self.batched_index_select_2d(logits, spans)
@@ -3534,7 +3561,7 @@ def build_opts():
         group.add_argument("--do_co_attention", action="store_true")
         group.add_argument("--do_biaffine", action="store_true")
         group.add_argument("--extract_method", type=str, default="endpoint")
-        group = parser.add_argument_group(title="SpanClassificationHead", description="SpanClassificationHead")
+        group = parser.add_argument_group(title="SpanClassificationHeadGP", description="SpanClassificationHeadGP")
         group.add_argument("--use_rope", action="store_true")
         group.add_argument("--pe_dim", type=int, default=64)
         group.add_argument("--pe_max_len", type=int, default=512)
@@ -3762,7 +3789,7 @@ def main(opts):
         if opts.do_train else model_class(config=config)
     model.to(opts.device)
 
-    if opts.use_sinusoidal_width_embedding:
+    if hasattr(model.head, "width_embedding") and opts.use_sinusoidal_width_embedding:
         logger.info("Initializing sinusoidal width embedding")
         def _init_weight(out: nn.Parameter):
             """
