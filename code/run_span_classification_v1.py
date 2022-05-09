@@ -1110,15 +1110,51 @@ class AugmentMaskRandomEntity(AugmentBase):
 class AugmentRandomMask(AugmentBase):
     """ 后处理 """
 
-    def __init__(self, p=0.1):
+    def __init__(self, p=0.5, mask_mode="non-entity", mask_proba=0.15, mask_token="[MASK]"):
         self.p = p
+        self.mask_mode = mask_mode
+        self.mask_proba = mask_proba
+        self.mask_token = mask_token
 
     def process(self, example):
-        example = deepcopy(example)
+        if np.random.random() < self.p:
+            return example
 
-        # TODO:
+        example = deepcopy(example)
+        text = example["text"]
+        entities = example["entities"]
+
+        mask_indices = set(range(len(text)))
+        entitiy_indices = set(chain(*[list(range(start, end)) \
+            for start, end, label, string in entities]))
+        if self.mask_mode == "all":
+            pass
+        elif self.mask_mode == "entity":
+            mask_indices = entitiy_indices
+        elif self.mask_mode == "non-entity":
+            mask_indices = mask_indices - entitiy_indices
+
+        mask_indices = list(mask_indices)
+        num_mask = int(np.round(len(mask_indices) * self.mask_proba))
+        masked_indices = np.random.choice(
+            len(mask_indices), size=num_mask, replace=False)
+
+        origin_text = text
+        for index in masked_indices:
+            text[index] = self.mask_token
+            for start, end, label, string in entities:
+                if start <= index and index < end:
+                    string[index - start] = self.mask_token
+        example["text"] = text
+        example["entities"] = entities
+
         check_example(example)
-        self.process_inv(example)
+
+        if "status" not in example:
+            example["status"] = dict()
+        example["status"][__class__] = dict(
+            origin_text=origin_text,
+        )
 
         return example
 
@@ -1126,8 +1162,131 @@ class AugmentRandomMask(AugmentBase):
         if __class__ not in example["status"]:
             return example
         example = deepcopy(example)
-        check_example(example)
+        status = example["status"].pop(__class__)
+
         # TODO:
+        # example["text"] = status["origin_text"]
+        check_example(example)
+
+        return example
+
+class AugmentExchangeEntity(AugmentBase):
+    """ 相同实体类型间，随机交换文本 """
+
+    def __init__(self, p=0.1):
+        self.p = p
+
+    def process(self, example):
+        if np.random.random() < self.p:
+            return example
+
+        example = deepcopy(example)
+        text = example["text"]
+        entities = example["entities"]
+
+        idx2entity_map = self._shuffle_same_label_entities(entities)
+        text, entities, idx2entity_map = self._replace_entities(
+            text, entities, idx2entity_map)
+
+        example["text"] = text
+        example["entities"] = entities
+        example["sent_start"] = 0
+        example["sent_end"] = len(text)
+        check_example(example)
+
+        if "status" not in example:
+            example["status"] = dict()
+        example["status"][__class__] = dict(
+        )
+
+        return example
+
+    def process_inv(self, example):
+        if __class__ not in example["status"]:
+            return example
+        example = deepcopy(example)
+        status = example["status"].pop(__class__)
+
+        # TODO:
+        check_example(example)
+
+        return example
+
+    def _shuffle_same_label_entities(self, entities):
+        label2entities_map = defaultdict(list)
+        for index, entity in enumerate(entities):
+            label2entities_map[entity[2]].append((index, entity))
+
+        idx2entity_map = dict()
+        for label, indexed_entities in label2entities_map.items():
+            indices = list(range(len(indexed_entities)))
+            np.random.shuffle(indices)
+            shffled_entities = [indexed_entities[index][1] for index in indices]
+            for (idx, entity), shffled_entity in zip(indexed_entities, shffled_entities):
+                start, end, label, string = entity
+                shffled_start, shffled_end, shffled_label, shffled_string = shffled_entity
+                idx2entity_map[idx] = [start, start + len(shffled_string), label, shffled_string]
+        return idx2entity_map
+
+    def _replace_entities(self, text, entities, idx2entity_map):
+        for idx, entity_new in sorted(idx2entity_map.items(), key=lambda x: x[0], reverse=True):
+            start, end, label, string = entities[idx]
+            start_new, end_new, label_new, string_new = entity_new
+            text = text[: start] + string_new + text[end: ]
+            entities[idx] = entity_new
+
+            offset = len(string_new) - len(string)
+            for entity in entities[idx + 1: ]:
+                entity[0] += offset
+                entity[1] += offset
+
+            idx2entity_map[idx] = (start, end, label, string)
+
+        return text, entities, idx2entity_map
+
+class AugmentExchangeSegments(AugmentBase):
+    """ 依beta分布随机选择文本位置截断，并交换 """
+
+    def __init__(self, p=0.1, beta=5):
+        self.p = p
+        self.beta = beta
+
+    def process(self, example):
+        if np.random.random() < self.p:
+            return example
+
+        example = deepcopy(example)
+        text = example["text"]
+        entities = example["entities"]
+
+        entities = sorted(entities, key=lambda x: x[:2])
+        beta = np.random.beta(self.beta, self.beta)
+        index = np.round(len(entities) * beta).astype(np.int)
+        start, end = entities[index][:2]
+
+        cut_pos = start if np.random.random() > 0.5 else end
+        seg_a, seg_b = text[: cut_pos], text[cut_pos: ]
+        text = seg_b + seg_a
+
+        for i, (start, end, label, string) in enumerate(entities):
+            if start >= cut_pos:
+                start -= len(seg_a)
+                end -= len(seg_a)
+            elif end <= cut_pos:
+                start += len(seg_b)
+                end += len(seg_b)
+            entities[i] = [start, end, label, string]
+        entities = sorted(entities, key=lambda x: x[:2])
+
+        example["text"] = text
+        example["entities"] = entities
+        check_example(example)
+
+        if "status" not in example:
+            example["status"] = dict()
+        example["status"][__class__] = dict(
+        )
+
         return example
 
 class AugmentSynonymReplace(AugmentBase):
@@ -1441,6 +1600,9 @@ class ConditionalProcessExample2Feature(ProcessExample2Feature):
 def load_dataset(data_class, process_class, data_name, data_dir, data_type, tokenizer, max_sequence_length, 
                  context_size, max_span_length, negative_sampling, stanza_nlp=None, **kwargs):
     do_preprocess = "do_preprocess" in kwargs and kwargs.pop("do_preprocess")
+    do_random_mask_augment = "do_random_mask_augment" in kwargs and kwargs.pop("do_random_mask_augment")
+    do_exchange_entity_augment = "do_exchange_entity_augment" in kwargs and kwargs.pop("do_exchange_entity_augment")
+    do_exchange_segments_augment = "do_exchange_segments_augment" in kwargs and kwargs.pop("do_exchange_segments_augment")
     process_piplines = [
         # AugmentRandomMask(p=0.1) if data_type == "train" else None,
         # AugmentDropRandomEntity(p=0.1) if data_type == "train" else None,
@@ -1452,6 +1614,10 @@ def load_dataset(data_class, process_class, data_name, data_dir, data_type, toke
         #         "37", "38", "39", "40",
         #     }
         # ]) if data_type == "train" else None,
+        AugmentRandomMask(p=0.5, mask_mode="non-entity", mask_proba=0.15, mask_token=tokenizer.mask_token
+            ) if data_type == "train" and do_random_mask_augment else None,
+        AugmentExchangeEntity(p=0.3) if data_type == "train" and do_exchange_entity_augment else None,
+        AugmentExchangeSegments(p=0.2, beta=5) if data_type == "train" and do_exchange_segments_augment else None,
         ProcessPreprocess() if do_preprocess else None,
         ProcessConvertLevel(tokenizer, "word2char") if data_class in [  # english
 
@@ -1617,11 +1783,11 @@ class SpanClassificationMixin(nn.Module):
             probas = logits_or_labels.softmax(dim=-1)
             # TODO: 这题不利于提高召回率，应确保精确率为主。
             #       因为当分词出现错误时，同时降低准确率、召回率，而直接预测为非实体，仅降低召回率。
-            # probas, labels = probas.max(dim=-1)     # 实体类别概率
-            _, labels = probas.max(dim=-1)
-            probas = 1 - probas[..., other_id]      # 是实体的概率
-            labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX),      # 提精度
-                torch.full_like(labels, other_id), labels)
+            probas, labels = probas.max(dim=-1)     # 实体类别概率
+            # _, labels = probas.max(dim=-1)
+            # probas = 1 - probas[..., other_id]      # 是实体的概率
+            # labels = torch.where((probas < thresh) | (labels == IGNORE_INDEX),      # 提精度
+            #     torch.full_like(labels, other_id), labels)
             # ---
             # probas[..., other_id] = torch.where(probas[..., other_id] < thresh,
             #     torch.zeros_like(probas[..., other_id]), probas[..., other_id])     # 提召回
@@ -3553,6 +3719,10 @@ def build_opts():
         group.add_argument("--max_eval_examples", type=int, default=None)
         group.add_argument("--max_test_examples", type=int, default=None)
         group.add_argument("--max_span_length", type=int, default=512)
+        group = parser.add_argument_group(title="augment-related", description="augment-related")
+        group.add_argument("--do_random_mask_augment", action="store_true")
+        group.add_argument("--do_exchange_entity_augment", action="store_true")
+        group.add_argument("--do_exchange_segments_augment", action="store_true")
         group = parser.add_argument_group(title="WeightedLayerPooling", description="WeightedLayerPooling")
         group.add_argument("--use_last_n_layers", type=int, default=None)
         group.add_argument("--agg_last_n_layers", type=str, default="mean")
@@ -3715,12 +3885,18 @@ def main(opts):
                                     tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
                                     opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels, 
                                     max_examples=opts.max_train_examples, do_preprocess=opts.do_preprocess,
+                                    do_random_mask_augment=opts.do_random_mask_augment,
+                                    do_exchange_entity_augment=opts.do_exchange_entity_augment,
+                                    do_exchange_segments_augment=opts.do_exchange_segments_augment,
                                     )
         if opts.pseudo_input_file is not None and not opts.do_check:
             pseudo_dataset = load_dataset(data_class, process_class, opts.pseudo_input_file, opts.data_dir, "train",
                                          tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length,
                                          opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels,
                                          max_examples=opts.max_pseudo_examples, do_preprocess=opts.do_preprocess,
+                                         do_random_mask_augment=opts.do_random_mask_augment,
+                                         do_exchange_entity_augment=opts.do_exchange_entity_augment,
+                                         do_exchange_segments_augment=opts.do_exchange_segments_augment,
                                          )
     if (opts.do_train and opts.evaluate_during_training) or opts.do_eval:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
