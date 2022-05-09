@@ -4,6 +4,10 @@
 
 ## 更新
 
+### 2022/5/9
+1. 新增`AugmentRandomMask`、`AugmentExchangeEntity`、`AugmentExchangeSegments`；
+2. `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-lsr0.01`，线下0.8144；
+
 ### 2022/5/8
 1. 提交线上`gmodel_spancls_202205077213`，0.8135973553679232；
 2. 线上预训练`gmodel_nezha_cn_base_gaiic_1.392`；
