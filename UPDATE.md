@@ -12,8 +12,9 @@
 5. 新增`data_augmentation.py`，用于静态数据增强。
 
 TODO:
-1. 实体增强MLM；
-2. SWA单独微调；
+1. 线上微调对比AWP效果，用mlm损失1.392，待导出模型提交；
+2. 实体增强MLM，数据处理中，待导出后预训练，学习率由1.结果确定(2e-5或3e-5)；
+3. SWA单独微调；
 
 ### 2022/5/9
 1. 新增`AugmentRandomMask`、`AugmentExchangeEntity`、`AugmentExchangeSegments`；
