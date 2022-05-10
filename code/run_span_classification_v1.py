@@ -3743,6 +3743,7 @@ DATA_CLASSES = {
 }
 
 def set_extra_defaults(opts):
+    """ 解决新增命令行选项时，以前版本保存的opts.json缺少参数项，导致run_span_classification.py opts.json失败 """
     defaults = dict(
         do_check=False,
         # group = parser.add_argument_group(title="data-related", description="data-related")
