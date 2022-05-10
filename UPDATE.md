@@ -7,7 +7,7 @@
 ### 2022/5/10
 1. 修改`run_span_classification_v1.SpanClassificationMixin.drop_overlap_rule`；
 2. 新增`run_span_classification_v1.set_extra_defaults`；
-3. 
+3. 为实体增强MLM实现：`prepare_corpus.py`新增保存实体列表，`run_chinese_ref.py`支持jieba导入用户词典；
 
 ### 2022/5/9
 1. 新增`AugmentRandomMask`、`AugmentExchangeEntity`、`AugmentExchangeSegments`；

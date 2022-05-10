@@ -4,6 +4,7 @@ import random
 from itertools import chain
 from argparse import ArgumentParser
 from prepare_data import generate_examples, create_examples
+from utils import get_spans_bio
 
 sys.path.append("TorchBlocks/")
 from torchblocks.utils.seed import seed_everything
@@ -31,6 +32,7 @@ if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True)
 
     corpus = []
+    entities = set()
     for example in chain(
         generate_examples("../data/contest_data/train_data/train.txt"),
         generate_examples("../data/contest_data/preliminary_test_a/word_per_line_preliminary_A.txt"),
@@ -38,11 +40,24 @@ if __name__ == "__main__":
         generate_examples_from_lines("../data/contest_data/train_data/unlabeled_train_data.txt"),
     ):
         text = "".join(example[1]["tokens"])
+        # 保存实体词典
+        ner_tags = example[1]["ner_tags"] if "ner_tags" in example[1] else None
+        if ner_tags is not None:
+            for label, start, end in get_spans_bio(ner_tags):
+                entities.add(text[start: end + 1])
+            # import jieba
+            # a = jieba.lcut(text)
+            # jieba.load_userdict("data/processed/pretrain-v0/entities.txt")
+            # b = jieba.lcut(text)
+            # print()
         length = len(text)
         if length < args.min_length or length > args.max_length:
             continue
         corpus.append(text)
     print(f"{sys._getframe().f_code.co_name} #{len(corpus)}")
+
+    with open(os.path.join(args.output_dir, "entities.txt"), "w", encoding="utf-8") as f:
+        f.writelines([entity + "\n" for entity in entities])
 
     random.shuffle(corpus)
     corpus = list(map(lambda x: x + "\n", corpus))

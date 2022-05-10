@@ -131,6 +131,9 @@ def main(args):
     if args.ltp is not None:
         from ltp import LTP
         ltp_tokenizer = LTP(args.ltp)  # faster in GPU device
+        
+    if args.jieba_userdict is not None:
+        jieba.load_userdict(args.jieba_userdict)
 
     bert_tokenizer = BertTokenizerZh.from_pretrained(args.bert, do_ref_tokenize=False)
     
@@ -161,8 +164,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--bert", 
         type=str, 
-        default="/home/louishsu/NewDisk/Garage/weights/transformers/nezha-cn-base/vocab.txt", 
+        default=None, 
         help="resources for Bert tokenizer"
+    )
+    parser.add_argument(
+        "--jieba_userdict", 
+        type=str, 
+        default=None, 
+        help="resources for jieba"
     )
     parser.add_argument(
         "--seg_save_path", 
