@@ -8,6 +8,12 @@
 1. 修改`run_span_classification_v1.SpanClassificationMixin.drop_overlap_rule`；
 2. 新增`run_span_classification_v1.set_extra_defaults`；
 3. 为实体增强MLM实现：`prepare_corpus.py`新增保存实体列表，`run_chinese_ref.py`支持jieba导入用户词典；
+4. 提交线上`2022/5/9 nezha-200k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop1.0-swav1`，0.8131485592934022；
+5. 新增`data_augmentation.py`，用于静态数据增强。
+
+TODO:
+1. 实体增强MLM；
+2. SWA单独微调；
 
 ### 2022/5/9
 1. 新增`AugmentRandomMask`、`AugmentExchangeEntity`、`AugmentExchangeSegments`；
