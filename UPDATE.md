@@ -4,6 +4,11 @@
 
 ## 更新
 
+### 2022/5/10
+1. 修改`run_span_classification_v1.SpanClassificationMixin.drop_overlap_rule`；
+2. 新增`run_span_classification_v1.set_extra_defaults`；
+3. 
+
 ### 2022/5/9
 1. 新增`AugmentRandomMask`、`AugmentExchangeEntity`、`AugmentExchangeSegments`；
 2. `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-lsr0.01`，线下0.8144；

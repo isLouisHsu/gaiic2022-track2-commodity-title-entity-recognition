@@ -1820,8 +1820,8 @@ class SpanClassificationMixin(nn.Module):
                 entities.append((start, end + 1, label, proba))   # 左闭右开
             # entities = sorted(entities, key=lambda x: (x[0], x[1] - x[0]))
             # entities = cls.drop_overlap_baseline(entities)
-            entities = cls.drop_overlap_nms(entities)
             # entities = cls.drop_overlap_rule(entities)
+            entities = cls.drop_overlap_nms(entities)
             entities = [entity[:-1] for entity in entities]
             decode_entities.append(entities)
 
@@ -1887,25 +1887,70 @@ class SpanClassificationMixin(nn.Module):
         is_a_included_by_b = lambda a, b: min(a[1], b[1]) - max(a[0], b[0]) == a[1] - a[0]
         is_length_le_n = lambda x, n: x[1] - x[0] < n
         is_contain_special_char = lambda x: any([c in text[x[0]: x[1]] for c in ["，", "。", "、", ",", ".", ]])
+        is_a_composed_of_bc = lambda a, b, c: a[0] == min(b[0], c[0]) and a[1] == max(b[1], c[1]) and not is_intersect(b, c)
+        sort_by_length_in_ascending_order = lambda entities: sorted(entities, key=lambda x: x[1] - x[0])
+        def find_overlap_entity_groups(entities):
+            """ 查找重叠实体 """
+            entity_groups = []
+            for i, entity_a in enumerate(entities):
+                for entity_b in entities[i + 1: ]:
+                    if is_intersect(entity_a, entity_b):
+                        if len(entity_groups) == 0:
+                            entity_groups.append([])
+                            entity_groups[-1].append(entity_a)
+                            entity_groups[-1].append(entity_b)
+                        else:
+                            if entity_a in entity_groups[-1]:
+                                entity_groups[-1].append(entity_b)
+                            else:
+                                entity_groups.append([])
+                                entity_groups[-1].append(entity_a)
+                                entity_groups[-1].append(entity_b)
+            return entity_groups
 
-        kept_entities = []
-        for i, (start, end, label, score) in enumerate(entities):
-            if i == 0 or not is_intersect(kept_entities[-1], entities[i]):
-                kept_entities.append((start, end, label, score))
-                continue
-
-            last_start, last_end, last_label, last_score = kept_entities[-1]
-            length, last_length = end - start, last_end - last_start
-            if is_intersect((start, end), (last_start, last_end)):
-                if label == last_label: # 同类型重叠下保留长
-                    # TODO: score
-                    if length > last_length:
-                        kept_entities.pop(-1)
-                        kept_entities.append(entities[i])
+        entities_todel = []
+        overlap_entity_groups = find_overlap_entity_groups(entities)
+        for group in overlap_entity_groups:
+            # 两个实体重叠的情况
+            if len(group) == 2:
+                entity_a, entity_b = group
+                # 实体类型相同
+                if entity_a[2] == entity_b[2]:
+                    # 类型4，保留短
+                    if entity_a[2] in ["4"]:
+                        group = sort_by_length_in_ascending_order(group)
+                        entities_todel.append(group[1])
+                    # 类型38，保留长
+                    elif entity_a[2] in ["38"]:
+                        group = sort_by_length_in_ascending_order(group)
+                        entities_todel.append(group[0])
+                    # 其他类型，保留长
+                    else:
+                        pass
                 else:
-                    if score > last_score:
-                        kept_entities.pop(-1)
-                        kept_entities.append(entities[i])
+                    pass
+            elif len(group) == 3:
+                pass
+                # group = sort_by_length_in_ascending_order(group)[::-1]
+                # entity_a, entity_b, entity_c = group
+                # # # 三个实体组成，保留短
+                # # entities_todel.append(entity_a)
+                # # A由B、C拼接成，保留短
+                # if is_a_composed_of_bc(entity_a, entity_b, entity_c):
+                #     entities_todel.append(entity_a)
+                # else:
+                #     # A、B、C类型相同，保留最长
+                #     if entity_a[2] == entity_b[2] and entity_b[2] == entity_c[2]:
+                #         pass
+                #     else:
+                #         pass
+            else:
+                pass
+           
+        kept_entities = [
+            entity for entity in entities
+            if entity not in entities_todel
+        ]
         return kept_entities
 
 class SpanClassificationHead(SpanClassificationMixin):
@@ -3697,6 +3742,82 @@ DATA_CLASSES = {
     "gaiic": (GaiicTrack2SpanClassificationDataset, GaiicTrack2ProcessExample2Feature),
 }
 
+def set_extra_defaults(opts):
+    defaults = dict(
+        do_check=False,
+        # group = parser.add_argument_group(title="data-related", description="data-related")
+        do_ref_tokenize=False,
+        do_preprocess=False,
+        context_size=0,
+        negative_sampling=0.0,
+        labels=None,
+        max_train_examples=None,
+        max_eval_examples=None,
+        max_test_examples=None,
+        max_span_length=512,
+        # group = parser.add_argument_group(title="augment-related", description="augment-related")
+        do_random_mask_augment=False,
+        do_exchange_entity_augment=False,
+        do_exchange_segments_augment=False,
+        # group = parser.add_argument_group(title="WeightedLayerPooling", description="WeightedLayerPooling")
+        use_last_n_layers=None,
+        agg_last_n_layers="mean",
+        # group = parser.add_argument_group(title="SpanClassificationHead", description="SpanClassificationHead")
+        width_embedding_size=128,
+        do_projection=False,
+        do_cln=False,
+        do_co_attention=False,
+        do_biaffine=False,
+        extract_method="endpoint",
+        # group = parser.add_argument_group(title="SpanClassificationHeadGP", description="SpanClassificationHeadGP")
+        use_rope=False,
+        pe_dim=64,
+        pe_max_len=512,
+        # group = parser.add_argument_group(title="model-related", description="model-related")
+        classifier_dropout=0.1,
+        decode_thresh=0.0,
+        find_best_decode_thresh=False,
+        use_sinusoidal_width_embedding=False,
+        do_lstm=False,
+        num_lstm_layers=1,
+        lstm_dropout=0.0,
+        use_syntactic=False,
+        syntactic_upos_size=21,
+        mc_dropout_rate=None,
+        mc_dropout_times=None,
+        layer_wise_lr_decay=None,
+        # group = parser.add_argument_group(title="loss function-related", description="loss function-related")
+        loss_type="lsr",
+        label_smoothing=0.0,
+        focal_gamma=2.0,
+        focal_alpha=0.25,
+        do_mixup=False,
+        mixup_alpha=7.0,
+        mixup_weight=0.5,
+        # group = parser.add_argument_group(title="R-Drop", description="R-Drop")
+        do_rdrop=False,
+        rdrop_weight=0.3,
+        # group = parser.add_argument_group(title="pseudo label", description="pseudo label")
+        max_pseudo_examples=None,
+        pseudo_input_file=None,
+        pseudo_teachers_name_or_path=None, 
+        pseudo_temperature=2.0,
+        pseudo_weight=1.0,
+        pseudo_warmup_start_step=-1,
+        pseudo_warmup_end_step=-1,
+        # group = parser.add_argument_group(title="swa", description="Stochastic Weight Averaging (SWA)")
+        swa_enable=False,
+        swa_start=0.75,
+        swa_lr=1e-6,
+        swa_freq=1,
+        swa_anneal_epochs=100,
+        swa_anneal_strategy="cos",
+    )
+    for key, value in defaults.items():
+        if not hasattr(opts, key):
+            setattr(opts, key, value)
+            print(f"Set extra default opts: {key} = {value}")
+    return opts
 
 def build_opts():
     # sys.argv.append("outputs/gaiic_nezha_nezha-ref-154k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3/gaiic_nezha_nezha-ref-154k-spanv1-datav4-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop0.3_opts.json")
@@ -3795,7 +3916,8 @@ def build_opts():
     # opts.do_train = True
     # opts.use_syntactic = True
     # opts.syntactic_upos_size = 21
-    
+
+    opts = set_extra_defaults(opts)
     return opts
 
 def update_example_entities(tokenizer, examples, entities, processes=[]):
@@ -3894,9 +4016,9 @@ def main(opts):
                                          tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length,
                                          opts.negative_sampling, stanza_nlp=stanza_nlp, labels=opts.labels,
                                          max_examples=opts.max_pseudo_examples, do_preprocess=opts.do_preprocess,
-                                         do_random_mask_augment=opts.do_random_mask_augment,
-                                         do_exchange_entity_augment=opts.do_exchange_entity_augment,
-                                         do_exchange_segments_augment=opts.do_exchange_segments_augment,
+                                        #  do_random_mask_augment=opts.do_random_mask_augment,
+                                        #  do_exchange_entity_augment=opts.do_exchange_entity_augment,
+                                        #  do_exchange_segments_augment=opts.do_exchange_segments_augment,
                                          )
     if (opts.do_train and opts.evaluate_during_training) or opts.do_eval:
         dev_dataset   = load_dataset(data_class, process_class, opts.eval_input_file, opts.data_dir, "dev",
