@@ -54,6 +54,7 @@ sys.path.append("TorchBlocks/")
 # from torchblocks.layers.layer_norm import ConditionalLayerNorm
 # from torchblocks.losses.focal_loss import FocalLoss
 # from torchblocks.losses.label_smoothing import LabelSmoothingCE
+# from torchblocks.losses.ploy1_loss import Poly1CrossEntropyLoss
 # from torchblocks.core import TrainerBase
 # from torchblocks.utils.options import Argparser
 # from torchblocks.utils.logger import Logger
@@ -70,6 +71,7 @@ from packages import (
     ConditionalLayerNorm,
     FocalLoss,
     LabelSmoothingCE,
+    Poly1CrossEntropyLoss,
     TrainerBase,
     Argparser,
     Logger,
@@ -1117,7 +1119,7 @@ class AugmentRandomMask(AugmentBase):
         self.mask_token = mask_token
 
     def process(self, example):
-        if np.random.random() < self.p:
+        if np.random.random() > self.p:
             return example
 
         example = deepcopy(example)
@@ -1177,7 +1179,7 @@ class AugmentExchangeEntity(AugmentBase):
         self.p = p
 
     def process(self, example):
-        if np.random.random() < self.p:
+        if np.random.random() > self.p:
             return example
 
         example = deepcopy(example)
@@ -1252,7 +1254,7 @@ class AugmentExchangeSegments(AugmentBase):
         self.beta = beta
 
     def process(self, example):
-        if np.random.random() < self.p:
+        if np.random.random() > self.p:
             return example
 
         example = deepcopy(example)
@@ -2174,6 +2176,7 @@ class SpanClassificationLoss(nn.Module):
         label_smoothing_eps=0.0, 
         focal_gamma=2.0, 
         focal_alpha=0.25,
+        ploy1_epsilon=1.0,
         reduction="mean", 
         ignore_index=-100
     ):
@@ -2189,6 +2192,9 @@ class SpanClassificationLoss(nn.Module):
         elif loss_type == "focal":
             self.loss_fct = FocalLoss(num_labels=num_labels, 
                 gamma=focal_gamma, alpha=focal_alpha, reduction="none")
+        elif loss_type == "ploy1_ce":
+            self.loss_fct = Poly1CrossEntropyLoss(
+                num_classes=num_labels, epsilon=ploy1_epsilon, reduction="none")
         elif loss_type == "lsrol":
             self.loss_fct = None    # TODO:
 
@@ -2283,6 +2289,7 @@ class ModelForSpanClassification(PreTrainedModel):
             label_smoothing_eps=config.label_smoothing,
             focal_gamma=config.focal_gamma,
             focal_alpha=config.focal_alpha,
+            ploy1_epsilon=config.ploy1_epsilon,
             reduction="mean",
             ignore_index=IGNORE_INDEX,
         )
@@ -2673,6 +2680,7 @@ class SpanClassificationXYLoss(nn.Module):
         label_smoothing_eps=0.0,
         focal_gamma=2.0,
         focal_alpha=0.25,
+        ploy1_epsilon=1.0,
         reduction="mean",
         ignore_index=-100
     ):
@@ -2684,6 +2692,7 @@ class SpanClassificationXYLoss(nn.Module):
                 label_smoothing_eps=label_smoothing_eps,
                 focal_gamma=focal_gamma,
                 focal_alpha=focal_alpha,
+                ploy1_epsilon=ploy1_epsilon,
                 reduction=reduction,
                 ignore_index=ignore_index
             )
@@ -2694,6 +2703,7 @@ class SpanClassificationXYLoss(nn.Module):
                 label_smoothing_eps=label_smoothing_eps,
                 focal_gamma=focal_gamma,
                 focal_alpha=focal_alpha,
+                ploy1_epsilon=ploy1_epsilon,
                 reduction=reduction,
                 ignore_index=ignore_index
             )
@@ -2901,6 +2911,7 @@ class ModelForSpanClassificationGP(PreTrainedModel):
             label_smoothing_eps=config.label_smoothing,
             focal_gamma=config.focal_gamma,
             focal_alpha=config.focal_alpha,
+            ploy1_epsilon=config.ploy1_epsilon,
             reduction="mean",
             ignore_index=IGNORE_INDEX,
         )
@@ -3792,6 +3803,7 @@ def set_extra_defaults(opts):
         label_smoothing=0.0,
         focal_gamma=2.0,
         focal_alpha=0.25,
+        ploy1_epsilon=1.0,
         do_mixup=False,
         mixup_alpha=7.0,
         mixup_weight=0.5,
@@ -3873,10 +3885,11 @@ def build_opts():
         group.add_argument("--mc_dropout_times", type=int, default=None)
         group.add_argument("--layer_wise_lr_decay", type=float, default=None)
         group = parser.add_argument_group(title="loss function-related", description="loss function-related")
-        group.add_argument("--loss_type", type=str, default="lsr", choices=["ce", "lsr", "focal"])
+        group.add_argument("--loss_type", type=str, default="lsr", choices=["ce", "lsr", "focal", "ploy1_ce"])
         group.add_argument("--label_smoothing", type=float, default=0.0)
         group.add_argument("--focal_gamma", type=float, default=2.0)
         group.add_argument("--focal_alpha", type=float, default=0.25)
+        group.add_argument("--ploy1_epsilon", type=float, default=1.0)
         group.add_argument("--do_mixup", action="store_true")
         group.add_argument("--mixup_alpha", type=float, default=7.0)
         group.add_argument("--mixup_weight", type=float, default=0.5)
@@ -4080,6 +4093,7 @@ def main(opts):
         label_smoothing=opts.label_smoothing, 
         focal_gamma=opts.focal_gamma,
         focal_alpha=opts.focal_alpha,
+        ploy1_epsilon=opts.ploy1_epsilon,
         do_mixup=opts.do_mixup,
         mixup_alpha=opts.mixup_alpha,
         mixup_weight=opts.mixup_weight,

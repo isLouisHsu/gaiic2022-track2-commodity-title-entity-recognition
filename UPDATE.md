@@ -4,17 +4,27 @@
 
 ## 更新
 
+### 2022/5/11
+1. 提交线上，`nezha-100k-spanv1-datas2v0-lr3e-5-wd0.001-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4`，`gmodel_spancls_202205101483`，0.8144165048602052；
+2. 提交离线任务`nezha-cn-base-seq128-lr3e-5-mlm0.15-100k-warmup10k-bs64x2`，数据源`gdata_pretrain_v31104`；
+3. 线下微调，`nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce0.1`，0.8149，Ploy1Loss有效；
+4. 修复静态数据增强概率计算问题，已生成数据，待微调；
+
+TODO:
+1. SWA单独微调；
+
 ### 2022/5/10
 1. 修改`run_span_classification_v1.SpanClassificationMixin.drop_overlap_rule`；
 2. 新增`run_span_classification_v1.set_extra_defaults`；
 3. 为实体增强MLM实现：`prepare_corpus.py`新增保存实体列表，`run_chinese_ref.py`支持jieba导入用户词典；
 4. 提交线上`2022/5/9 nezha-200k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgm1.0-rdrop1.0-swav1`，0.8131485592934022；
 5. 新增`data_augmentation.py`，用于静态数据增强。
+6. 线上微调，`nezha-100k-spanv1-datas2v0-lr3e-5-wd0.001-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4`；
+7. 提交离线任务，构造数据源`gdata_pretrain_v3`；
 
 TODO:
-1. 线上微调对比AWP效果，用mlm损失1.392，待导出模型提交；
-2. 实体增强MLM，数据处理中，待导出后预训练，学习率由1.结果确定(2e-5或3e-5)；
-3. SWA单独微调；
+1. ~~线上微调对比AWP效果，用mlm损失1.392，待导出模型提交；~~
+2. ~~实体增强MLM，数据处理中，待导出后预训练，学习率由1.结果确定(2e-5或3e-5)；~~
 
 ### 2022/5/9
 1. 新增`AugmentRandomMask`、`AugmentExchangeEntity`、`AugmentExchangeSegments`；
