@@ -4,14 +4,24 @@
 
 ## 更新
 
-### 2022/5/11
-1. 提交线上，`nezha-100k-spanv1-datas2v0-lr3e-5-wd0.001-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4`，`gmodel_spancls_202205101483`，0.8144165048602052；
-2. 提交离线任务`nezha-cn-base-seq128-lr3e-5-mlm0.15-100k-warmup10k-bs64x2`，数据源`gdata_pretrain_v31104`；
-3. 线下微调，`nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce0.1`，0.8149，Ploy1Loss有效；
-4. 修复静态数据增强概率计算问题，已生成数据，待微调；
+### 2022/5/12
+1. 线上导出模型`gmodel_nezha_cn_base_entity`，MLM最终损失1.5178041458129883；
+2. 线下微调`nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0`，0.8152；
+3. 线上微调
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`；
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-augv0`；
+   - `nezha-100k-spanv1gp-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`；
 
-TODO:
-1. SWA单独微调；
+TODO: 
+1. ~~静态数据增强；~~
+2. 蒸馏/伪标签
+3. SWA单独微调；
+
+### 2022/5/11
+2. 提交线上，`nezha-100k-spanv1-datas2v0-lr3e-5-wd0.001-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4`，`gmodel_spancls_202205101483`，0.8144165048602052；
+3. 提交离线任务`nezha-cn-base-seq128-lr3e-5-mlm0.15-100k-warmup10k-bs64x2`，数据源`gdata_pretrain_v31104`；
+4. 线下微调，`nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce0.1`，0.8149，Ploy1Loss有效；
+5. 修复静态数据增强概率计算问题，已生成数据，待微调；
 
 ### 2022/5/10
 1. 修改`run_span_classification_v1.SpanClassificationMixin.drop_overlap_rule`；
