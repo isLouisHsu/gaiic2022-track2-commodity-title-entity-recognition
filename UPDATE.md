@@ -4,18 +4,34 @@
 
 ## 更新
 
-### 2022/5/12
-1. 线上导出模型`gmodel_nezha_cn_base_entity`，MLM最终损失1.5178041458129883；
-2. 线下微调`nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0`，0.8152；
+### 2022/5/13
+
+1. 线下微调
+   - `nezha-100k-spanv1-datas2v0.0-augv0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0`，0.8127；
+   - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgme1.0-rdrop0.4-ploy1_ce2.0`，0.8118；
+   - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-pgde1.0-rdrop0.4-ploy1_ce2.0`，0.8136；
+   - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0`，0.8152；
+   - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0`，不佳；
+   - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop2.0-ploy1_ce2.5`，
+2. 提交线上
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`，即`gmodel_spancls_2022051219618`，0.8154596708823378；
+   - `nezha-100k-spanv1gp-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`，即`gmodel_gp_2022051235705`，0.814864726037745；
 3. 线上微调
-   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`；
-   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-augv0`；
-   - `nezha-100k-spanv1gp-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`；
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.5-awp1.0-rdrop2.0`
 
 TODO: 
 1. ~~静态数据增强；~~
-2. 蒸馏/伪标签
+2. 蒸馏/伪标签；
 3. SWA单独微调；
+4. ~~用新词发现分析标签；~~
+5. ~~实体库用作分词；~~
+
+### 2022/5/12
+1. 线上导出模型`gmodel_nezha_cn_base_entity`，MLM最终损失1.5178041458129883；
+2. 线上微调
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`，；
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-augv0`；
+   - `nezha-100k-spanv1gp-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`；
 
 ### 2022/5/11
 2. 提交线上，`nezha-100k-spanv1-datas2v0-lr3e-5-wd0.001-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4`，`gmodel_spancls_202205101483`，0.8144165048602052；

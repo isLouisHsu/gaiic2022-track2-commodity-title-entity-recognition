@@ -15,7 +15,9 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     # model_path="/home/mw/project/data/best_model/gmodel_gp_20220508xxxx",        # 0.8135973553679232
     # model_path="/home/mw/project/data/best_model/gmodel_gpswa_202205089550",     # 0.8135456792962686
     # model_path="/home/mw/project/data/best_model/gmodel_spancls_20220509016006", # 0.8131485592934022
-    model_path="/home/mw/project/data/best_model/gmodel_spancls_202205101483",   # 0.8144165048602052
+    # model_path="/home/mw/project/data/best_model/gmodel_spancls_202205101483",   # 0.8144165048602052
+    # model_path="/home/mw/project/data/best_model/gmodel_spancls_2022051219618",  # 0.8154596708823378
+    model_path="/home/mw/project/data/best_model/gmodel_gp_2022051235705",       # 0.814864726037745
     submit_result_file="/home/mw/project/results.txt"
 ):
     basename, ext = os.path.splitext(os.path.basename(path_word))

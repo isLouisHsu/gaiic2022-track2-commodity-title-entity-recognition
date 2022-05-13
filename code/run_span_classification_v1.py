@@ -1797,9 +1797,9 @@ class SpanClassificationMixin(nn.Module):
             # _, labels = probas.max(dim=-1)
             # probas = 1 - probas[..., other_id]  # 是实体的概率
 
-            # 无27、45两类
-            labels[labels == 27] = other_id
-            labels[labels == 45] = other_id
+            # # TODO: 无27、45两类
+            # labels[labels == 27] = other_id
+            # labels[labels == 45] = other_id
         else:
             probas, labels = torch.ones_like(logits_or_labels), logits_or_labels    # (batch_size, sequence_length)
 

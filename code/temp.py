@@ -135,3 +135,37 @@ class SpanClassificationHeadW2NER(SpanClassificationMixin):
         logits = self.batched_index_select_2d(logits, spans)
 
         return logits
+
+if opts.decode_labeled_as_ref:
+    train_dataset = load_dataset(data_class, process_class, opts.train_input_file, opts.data_dir, "train",
+                                    tokenizer, opts.train_max_seq_length, opts.context_size, opts.max_span_length, 
+                                    negative_sampling=0.0,
+                                )
+    entities = set((chain(*[
+        ["".join(entity[3]) for entity in example["entities"]] 
+        for example in train_dataset.examples
+    ])))
+    [jieba.add_word(entity) for entity in entities]
+    test_dataloader = trainer.build_test_dataloader(test_dataset)
+    for step, (batch, result) in enumerate(zip(test_dataloader, results)):
+        refs = []
+        for input_ids, attention_mask in zip(batch["input_ids"], batch["attention_mask"]):
+            sequence_length = attention_mask.sum()
+            input_ids = input_ids[1: sequence_length - 1]
+            tokens = tokenizer.convert_ids_to_tokens(input_ids)
+            string = tokenizer.convert_tokens_to_string(tokens)
+            words  = jieba.cut(string)
+            start = 0
+            refs.append([])
+            for word in words:
+                end = start + len(word)
+                if word in entities:
+                    refs[-1].append((start, end, word))
+                start = end
+            print()
+
+        logits = result["logits"]
+        spans = result["spans"]
+        spans_mask = result["spans_mask"]
+        logits = result["logits"]
+        decoded = model.decode(logits, spans, spans_mask, 0.0, opts.label2id, opts.id2label, refs=refs)
