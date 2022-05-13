@@ -1152,3 +1152,10 @@ python run_span_classification_v1.py \
     --do_rdrop --rdrop_weight=2.0 \
     --seed=42 \
     --fp16
+# 2022-05-14 00:17:14 - INFO - root -   eval_f1_micro_all_entity = 0.8151
+# 2022-05-14 00:17:14 - INFO - root -   eval_f1_micro_all_entity_fx = 0.8681
+# 2022-05-14 00:17:14 - INFO - root -   eval_f1_micro_all_entity_fy = 0.8428
+# 2022-05-14 00:17:14 - INFO - root -   eval_f1_micro_without_label_entity = 0.9068
+# 2022-05-14 00:17:14 - INFO - root -   eval_loss = 0.0214
+
+# TODO: 更新线上代码

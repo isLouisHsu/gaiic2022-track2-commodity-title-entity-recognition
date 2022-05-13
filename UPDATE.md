@@ -11,8 +11,8 @@
    - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-fgme1.0-rdrop0.4-ploy1_ce2.0`，0.8118；
    - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-pgde1.0-rdrop0.4-ploy1_ce2.0`，0.8136；
    - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0`，0.8152；
+   - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop2.0-ploy1_ce2.5`，0.8151;
    - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0`，不佳；
-   - `nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop2.0-ploy1_ce2.5`，
 2. 提交线上
    - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`，即`gmodel_spancls_2022051219618`，0.8154596708823378；
    - `nezha-100k-spanv1gp-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`，即`gmodel_gp_2022051235705`，0.814864726037745；
@@ -21,10 +21,11 @@
 
 TODO: 
 1. ~~静态数据增强；~~
-2. 蒸馏/伪标签；
-3. SWA单独微调；
-4. ~~用新词发现分析标签；~~
-5. ~~实体库用作分词；~~
+2. ~~用新词发现分析标签；~~
+3. ~~实体库用作分词；~~
+4. 蒸馏/伪标签；
+5. SWA单独微调；
+6. 列一下线上/线下模型及分数，选择相近的线下调蒸馏；
 
 ### 2022/5/12
 1. 线上导出模型`gmodel_nezha_cn_base_entity`，MLM最终损失1.5178041458129883；
