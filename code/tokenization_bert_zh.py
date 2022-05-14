@@ -351,7 +351,9 @@ class BertTokenizerZh(BertTokenizer):
                     )
 
         first_ids, first_offsets_mapping = get_input_ids(text)
-        second_ids, second_offsets_mapping = get_input_ids(text_pair) if text_pair is not None else None, None
+        second_ids, second_offsets_mapping = None, None
+        if text_pair is not None:
+            second_ids, second_offsets_mapping = get_input_ids(text_pair)
 
         batch_encoding = self.prepare_for_model(
             first_ids,

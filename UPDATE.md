@@ -8,17 +8,19 @@
 
 1. 准备蒸馏/伪标签，目前线上/线下模型相近的为
    线上
-   - 2022/5/10/1 nezha-100k-spanv1-datas2v0-lr3e-5-wd0.001-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4 - 0.8144165048602052
-   - 2022/5/12/1 nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0 - 0.8154596708823378
+   - **2022/5/10/1** nezha-100k-spanv1-datas2v0-lr3e-5-wd0.001-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4 - 0.8144165048602052
+   - **2022/5/12/1** nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0 - 0.8154596708823378
    - 2022/5/12/2 nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-augv0
-   - 2022/5/12/3 nezha-100k-spanv1gp-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0 - 0.814864726037745
+   - **2022/5/12/3** nezha-100k-spanv1gp-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0 - 0.814864726037745
    - 2022/5/13/1 nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.5-awp1.0-rdrop2.0
    线下
    - nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-lsr0.01 - 0.8144
    - nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0 - 0.8152
    - nezha-100k-spanv1gp-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0 - 0.8154
 2. 线下微调，`nezha-100k-spanv1-datas2v2.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0-pseuv0`，TODO:
-
+3. 线上微调
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-pseuv0`
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp2.0-rdrop1.0`
 
 TODO: 
 1. AWP参数调整
