@@ -17,7 +17,9 @@
    - nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-lsr0.01 - 0.8144
    - nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0 - 0.8152
    - nezha-100k-spanv1gp-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0 - 0.8154
-2. 线下微调，`nezha-100k-spanv1-datas2v2.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0-pseuv0`，TODO:
+2. 线下微调
+   - `nezha-100k-spanv1-datas2v2.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0-pseuv0`，TODO:
+   - `nezha-100k-spanv1-datas2v2.0-lr4e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0-pseuv0`，0.8156
 3. 线上微调
    - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-pseuv0`
    - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp2.0-rdrop1.0`
