@@ -42,7 +42,7 @@ python run_span_classification_v1.py \
         ../data/model_data/gaiic_nezha_nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-lsr0.01/checkpoint-eval_f1_micro_all_entity-best \
         ../data/model_data/gaiic_nezha_nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0/checkpoint-eval_f1_micro_all_entity-best \
         ../data/model_data/gaiic_nezhagp_nezha-100k-spanv1gp-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0/checkpoint-eval_f1_micro_all_entity-best/ \
-    --pseudo_temperature=0.5 \
-    --pseudo_weight=1.0 \
+    --pseudo_temperature=1.0 \
+    --pseudo_weight=0.5 \
     --seed=42 \
     --fp16

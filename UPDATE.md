@@ -21,9 +21,10 @@
 3. 线上微调
    - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-pseuv0`
    - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp2.0-rdrop1.0`
+4. 提交线上，`nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp2.0-rdrop1.0`，即`gmodel_spancls_202205142`，	0.8153485305142973
 
 TODO: 
-1. AWP参数调整
+1. ~~AWP参数调整~~
 2. 列一下线上/线下模型及分数，选择相近的线下调蒸馏/伪标签；
 3. SWA单独微调；
 
