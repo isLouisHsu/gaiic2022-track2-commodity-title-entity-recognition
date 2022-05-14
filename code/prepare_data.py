@@ -133,13 +133,14 @@ if __name__ == "__main__":
                         guid=f"semi-{count}", text=list(line.strip()),
                         entities=None, sent_start=0, sent_end=len(line)
                     ))
+        semi_file = os.path.join(args.output_dir, "semi.all.jsonl")
         if args.start_unlabeled_files is not None and args.end_unlabeled_files is not None:
             # random.shuffle(unlabeled_examples)
             unlabeled_examples = unlabeled_examples[
                 args.start_unlabeled_files: args.end_unlabeled_files]
+            semi_file = os.path.join(args.output_dir, f"semi.{args.start_unlabeled_files}:{args.end_unlabeled_files}.jsonl")
         print(f"#semi={len(unlabeled_examples)}")
-        with open(os.path.join(args.output_dir, 
-                f"semi.{args.start_unlabeled_files}:{args.end_unlabeled_files}.jsonl"), "w") as f:
+        with open(semi_file, "w") as f:
             for example in unlabeled_examples:
                 f.write(json.dumps(example, ensure_ascii=False) + "\n")
     

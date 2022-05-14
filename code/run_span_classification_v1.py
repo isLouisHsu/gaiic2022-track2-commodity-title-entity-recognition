@@ -3479,8 +3479,10 @@ class Trainer(TrainerBase):
             self.teachers = []
             for model_name_or_path in self.opts.pseudo_teachers_name_or_path:
                 teacher_opts = torch.load(os.path.join(model_name_or_path, TRAINER_STATE_NAME))["opts"]
-                _, teacher_model_class, _ = MODEL_CLASSES[teacher_opts.model_type]
-                teacher = teacher_model_class.from_pretrained(model_name_or_path)
+                teacher_config_class, teacher_model_class, _ = MODEL_CLASSES[teacher_opts.model_type]
+                config = teacher_config_class.from_pretrained(model_name_or_path)
+                if not hasattr(config, "ploy1_epsilon"): config.ploy1_epsilon = 1.0
+                teacher = teacher_model_class.from_pretrained(model_name_or_path, config=config)
                 teacher.to(self.opts.device)
                 teacher.eval()  # inference mode
                 self.teachers.append(teacher)
