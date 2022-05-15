@@ -19,7 +19,7 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     # model_path="/home/mw/project/data/best_model/gmodel_spancls_2022051219618",  # 0.8154596708823378
     # model_path="/home/mw/project/data/best_model/gmodel_gp_2022051235705",       # 0.814864726037745
     # model_path="/home/mw/project/data/best_model/gmodel_spancls_2022051428128",  # 0.8153485305142973
-    model_path="/home/mw/project/data/best_model/gmodel_spancls_2022051428128",  # 0.8153156273245536
+    model_path="/home/mw/project/data/best_model/gmodel_spancls_2022051515130",  # 0.8153156273245536
     submit_result_file="/home/mw/project/results.txt"
 ):
     basename, ext = os.path.splitext(os.path.basename(path_word))
