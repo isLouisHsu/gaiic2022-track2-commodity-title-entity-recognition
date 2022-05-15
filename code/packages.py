@@ -2265,11 +2265,12 @@ class TrainerBase:
         )
         return warmup_steps
 
-    def build_lr_scheduler(self, num_training_steps):
+    def build_lr_scheduler(self, num_training_steps, scheduler_function=None):
         '''
         the learning rate scheduler.
         '''
-        scheduler_function = get_lr_scheduler(self.opts.scheduler_type)
+        if scheduler_function is None:
+            scheduler_function = get_lr_scheduler(self.opts.scheduler_type)
         warmup_steps = self.build_warmup_steps(num_training_steps)
         scheduler = scheduler_function(optimizer=self.optimizer,
                                        num_warmup_steps=warmup_steps,

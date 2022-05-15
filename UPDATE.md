@@ -4,6 +4,9 @@
 
 ## 更新
 
+### 2022/5/15
+1. 线下微调，`nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0-rdrop0.4-ploy1_ce2.0-cosine`,0.8155;
+
 ### 2022/5/14
 
 1. 准备蒸馏/伪标签，目前线上/线下模型相近的为
