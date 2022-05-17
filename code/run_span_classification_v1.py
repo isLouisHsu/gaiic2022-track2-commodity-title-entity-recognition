@@ -3401,7 +3401,7 @@ class Trainer(TrainerBase):
         self.train_backward(loss)
         should_save = False
         should_logging = False
-        if self.opts.adv_enable:
+        if self.opts.adv_enable and step >= self.opts.adv_start_steps:
             self.train_adv(batch)
         if (step + 1) % self.gradient_accumulation_steps == 0 or (
                 self.steps_in_epoch <= self.gradient_accumulation_steps

@@ -4,6 +4,11 @@
 
 ## 更新
 
+### 2022/5/17
+1. 提交线上
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`，即`gmodel_spancls_2022051617829`，0.8104775463912551
+   - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp0.5-rdrop1.0`，即`gmodel_spancls_2022051629391`，0.815385819848358
+
 ### 2022/5/16
 1. 提交线上，`nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0-pseuv1`，即`gmodel_spancls_2022051528877`，0.8154189358838884；
 2. 线上微调

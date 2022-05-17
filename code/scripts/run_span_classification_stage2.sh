@@ -1282,7 +1282,7 @@ python run_span_classification_v1.py \
     --test_input_file=word_per_line_preliminary_B.jsonl \
     --do_lower_case \
     --output_dir=../data/model_data/ \
-    --do_train --do_eval \
+    --do_predict \
     --evaluate_during_training \
     --train_max_seq_length=128 \
     --eval_max_seq_length=128 \
@@ -1319,7 +1319,7 @@ python run_span_classification_v1.py \
 # 2022-05-15 11:11:54 - INFO - root -   eval_loss = 0.0193
 
 python run_span_classification_v1.py \
-    --experiment_code=nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp0.5-rdrop0.4-ploy1_ce2.0 \
+    --experiment_code=nezha-100k-spanv1-datas2v0.0-lr3e-5-wd0.01-dropout0.3-span35-e6-bs16x2-sinusoidal-biaffine-awp1.0s4500-rdrop0.4-ploy1_ce2.0 \
     --task_name=gaiic \
     --model_type=nezha \
     --pretrained_model_path=../data/pretrain_model/nezha-cn-base-wwm-seq128-lr2e-5-mlm0.15-100k-warmup3k-bs64x2/checkpoint-100000/ \
@@ -1354,7 +1354,7 @@ python run_span_classification_v1.py \
     --decode_thresh=0.0 \
     --use_sinusoidal_width_embedding \
     --do_biaffine \
-    --adv_enable --adv_name=weight --adv_type=awp --adv_alpha=0.5 --adv_epsilon=0.001 \
+    --adv_enable --adv_name=weight --adv_type=awp --adv_alpha=1.0 --adv_epsilon=0.001 --adv_start_steps=4500 \
     --do_rdrop --rdrop_weight=0.4 \
     --seed=42 \
     --fp16
