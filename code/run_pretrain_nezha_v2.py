@@ -347,6 +347,7 @@ trainer = Trainer(
     args=training_args,
     data_collator=data_collator,
     train_dataset=train_MLM_data,
+    tokenizer=tokenizer,
 )
 trainer.train()
 trainer.save_model(record_save_path)
