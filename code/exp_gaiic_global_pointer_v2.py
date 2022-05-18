@@ -711,7 +711,10 @@ def train(opts, model, tokenizer, train_dataset, dev_dataset, logger):
                     result = evaluate(opts, model, dev_dataset, logger)
                     f1 = result
                 if opts.save_steps > 0 and global_step % opts.save_steps == 0:
-                    output_dir = os.path.join(opts.output_dir, "checkpoint-{}-{}".format(round(result, 5), global_step))
+                    if opts.save_best:
+                        output_dir = os.path.join(opts.output_dir, "checkpoint-best")
+                    else:
+                        output_dir = os.path.join(opts.output_dir, "checkpoint-{}-{}".format(round(result, 5), global_step))
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
                     model_to_save = (
@@ -1081,6 +1084,7 @@ def main():
     group.add_argument('--swa_model_dir',default='',type=str)
     group.add_argument('--do_predict_test',action='store_true')
     group.add_argument('--submit_file_path',default='',type=str)
+    group.add_argument('--save_best', action="store_true")
     opts = parser.parse_args_from_parser(parser)
     logger = Logger(opts=opts)
     # device

@@ -1,3 +1,5 @@
+python kfold_split_data.py
+
 # python exp_gaiic_global_pointer_v2.py \
 #    --experiment_code=experiment_bert_base_fold0_gp_v2_pre_v62 \
 #    --task_name=gaiic \
