@@ -28,11 +28,9 @@ try:
     from torch.optim.swa_utils import (
         AveragedModel, update_bn, SWALR
     )
-
     SWA_AVAILABLE = True
 except ImportError:
     SWA_AVAILABLE = False
-
 
 class GlobalPointerNeZha(NeZhaPreTrainedModel):
     '''
@@ -59,8 +57,8 @@ class GlobalPointerNeZha(NeZhaPreTrainedModel):
                 layer_start=config.layer_start, layer_weights=None
             )
         self.post_lstm_dropout = nn.Dropout(config.post_lstm_dropout)
-        # self.init_weights()
-        self._init_weights(self.global_pointer)
+        self.init_weights()
+        # self._init_weights(self.global_pointer)
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -96,6 +94,7 @@ class GlobalPointerNeZha(NeZhaPreTrainedModel):
                 sequence_output = last_hidden_state
         sequence_output = self.embedding_dropout(sequence_output)
         if self.do_lstm:
+            self.lstm.flatten_parameters()
             sequence_lengths = attention_mask.sum(dim=1)
             packed_sequence_output = pack_padded_sequence(
                 sequence_output, sequence_lengths.cpu(), batch_first=True, enforce_sorted=False)
@@ -109,28 +108,47 @@ class GlobalPointerNeZha(NeZhaPreTrainedModel):
         outputs['logits'] = logits
         return outputs
 
+class ResidualGatedConv1D(nn.Module):
+    """门控卷积
+    """
+    def __init__(self, filters, kernel_size, dilation_rate=1):
+        super(ResidualGatedConv1D, self).__init__()
+        self.filters = filters  # 输出维度
+        self.kernel_size = kernel_size
+        self.dilation_rate = dilation_rate
+        self.supports_masking = True
+        self.padding = self.dilation_rate*(self.kernel_size - 1)//2
+        self.conv1d = nn.Conv1d(filters, 2*filters, self.kernel_size, padding=self.padding, dilation=self.dilation_rate)
+        self.layernorm = nn.LayerNorm(self.filters)
+        self.alpha = nn.Parameter(torch.zeros(1))
 
-class GlobalPointerNeZhaV2(NeZhaPreTrainedModel):
+    def forward(self, inputs):
+        input_cov1d = inputs.permute([0, 2, 1])
+        outputs = self.conv1d(input_cov1d)
+        outputs = outputs.permute([0, 2, 1])
+        gate = torch.sigmoid(outputs[..., self.filters:])
+        outputs = outputs[..., :self.filters] * gate
+        outputs = self.layernorm(outputs)
+
+        if hasattr(self, 'dense'):
+            inputs = self.dense(inputs)
+
+        return inputs + self.alpha * outputs
+
+class GlobalPointerNeZhaV4(NeZhaPreTrainedModel):
     '''
-    gp+conv_ffn方案
+    gp方案
     '''
     def __init__(self, config):
-        super(GlobalPointerNeZhaV2, self).__init__(config)
+        super(GlobalPointerNeZhaV4, self).__init__(config)
         self.num_labels = config.num_labels
         self.inner_dim = config.inner_dim
         self.use_rope = config.use_rope
         self.hidden_size = config.hidden_size
-        self.use_last_n_layers = config.use_last_n_layers
         self.do_lstm = config.do_lstm
-        self.conv_hid_size = config.conv_hid_size
-        self.conv_dropout = config.conv_dropout
-        self.mlp_dropout = config.mlp_dropout
-        self.out_dropout = config.out_dropout
+        self.use_last_n_layers = config.use_last_n_layers
         self.bert = NeZhaModel(config)
         self.global_pointer = GlobalPointer(self.num_labels, self.inner_dim, self.hidden_size, self.use_rope)
-        if self.do_lstm:
-            self.lstm = nn.LSTM(config.hidden_size, config.hidden_size // 2, num_layers=config.num_lstm_layers,
-                                batch_first=True, bidirectional=True)
         self.embedding_dropout = SpatialDropout(config.embed_dropout)
         self.do_weight_layer_pooling = config.do_weight_layer_pooling
         if self.do_weight_layer_pooling:
@@ -139,12 +157,25 @@ class GlobalPointerNeZhaV2(NeZhaPreTrainedModel):
                 layer_start=config.layer_start, layer_weights=None
             )
         self.post_lstm_dropout = nn.Dropout(config.post_lstm_dropout)
-        self.convLayer = ConvolutionLayer(config.hidden_size, config.conv_hid_size, config.dilation, self.conv_dropout)
-        self.cln = LayerNorm(config.hidden_size, config.hidden_size, conditional=True)
-        self.mlp_rel = MLP(self.conv_hid_size * len(config.dilation), config.ffnn_hid_size, dropout=self.mlp_dropout)
-        self.linear = nn.Linear(config.ffnn_hid_size, self.num_labels)
-        self.dropout = nn.Dropout(self.out_dropout)
+        self.ResidualGatedConv1D_1 = ResidualGatedConv1D(self.hidden_size, 3, dilation_rate=config.dilation[0])
+        self.ResidualGatedConv1D_2 = ResidualGatedConv1D(self.hidden_size, 3, dilation_rate=config.dilation[1])
+        self.ResidualGatedConv1D_3 = ResidualGatedConv1D(self.hidden_size, 3, dilation_rate=config.dilation[2])
+        self.ResidualGatedConv1D_4 = ResidualGatedConv1D(self.hidden_size, 3, dilation_rate=config.dilation[3])
+        self.ResidualGatedConv1D_5 = ResidualGatedConv1D(self.hidden_size, 3, dilation_rate=config.dilation[4])
         self.init_weights()
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
 
     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, grid_mask2d=None):
         outputs = self.bert(
@@ -155,137 +186,67 @@ class GlobalPointerNeZhaV2(NeZhaPreTrainedModel):
             inputs_embeds=None,
         )
         sequence_output = outputs[0]
+        # 加权
         if self.do_weight_layer_pooling:
             sequence_output = self.WLP(all_hidden_states=outputs[2])
         else:
+            # 平均
             if self.use_last_n_layers is not None:
                 last_hidden_state = outputs[2]
                 last_hidden_state = torch.stack(last_hidden_state[- self.use_last_n_layers:], dim=-1)
                 last_hidden_state = torch.mean(last_hidden_state, dim=-1)
                 sequence_output = last_hidden_state
         sequence_output = self.embedding_dropout(sequence_output)
-        if self.do_lstm:
-            sequence_lengths = attention_mask.sum(dim=1)
-            packed_sequence_output = pack_padded_sequence(
-                sequence_output, sequence_lengths.cpu(), batch_first=True, enforce_sorted=False)
-            packed_sequence_output, _ = self.lstm(packed_sequence_output)
-            unpacked_sequence_output, _ = pad_packed_sequence(
-                packed_sequence_output, batch_first=True, total_length=sequence_lengths.max())
-            sequence_output = sequence_output + unpacked_sequence_output
         sequence_output = self.post_lstm_dropout(sequence_output)
-
-        cln = self.cln(sequence_output.unsqueeze(2), sequence_output)
-        conv_inputs = torch.masked_fill(cln, grid_mask2d.eq(0).unsqueeze(-1).to(input_ids.device), 0.0)
-        conv_outputs = self.convLayer(conv_inputs)
-        conv_outputs = torch.masked_fill(conv_outputs, grid_mask2d.eq(0).unsqueeze(-1).to(input_ids.device),
-                                         0.0)  # (2,16,16,240)
-        ffn_outputs = self.dropout(self.mlp_rel(conv_outputs))
-        ffn_outputs = self.linear(ffn_outputs)
-        gp_logits = self.global_pointer(sequence_output, mask=attention_mask)
-        logits = gp_logits + ffn_outputs
+        sequence_output = self.ResidualGatedConv1D_1(sequence_output)
+        sequence_output = self.ResidualGatedConv1D_2(sequence_output)
+        sequence_output = self.ResidualGatedConv1D_3(sequence_output)
+        sequence_output = self.ResidualGatedConv1D_4(sequence_output)
+        sequence_output = self.ResidualGatedConv1D_5(sequence_output)
+        logits = self.global_pointer(sequence_output, mask=attention_mask)
         outputs = {}
         outputs['logits'] = logits
         return outputs
 
-
-class GlobalPointerNeZhaV3(NeZhaPreTrainedModel):
-    '''
-    gp+conv_ffn+biaffine方案
-    '''
-    def __init__(self, config):
-        super(GlobalPointerNeZhaV3, self).__init__(config)
-        self.num_labels = config.num_labels
-        self.inner_dim = config.inner_dim
-        self.use_rope = config.use_rope
-        self.hidden_size = config.hidden_size
-        self.use_last_n_layers = config.use_last_n_layers
-        self.do_lstm = config.do_lstm
-        self.conv_hid_size = config.conv_hid_size
-        self.conv_dropout = config.conv_dropout
-        self.mlp_dropout = config.mlp_dropout
-        self.out_dropout = config.out_dropout
-        self.s_e_dropout = config.s_e_dropout
-        self.bert = NeZhaModel(config)
-        self.global_pointer = GlobalPointer(self.num_labels, self.inner_dim, self.hidden_size, self.use_rope)
-        if self.do_lstm:
-            self.lstm = nn.LSTM(config.hidden_size, config.hidden_size // 2, num_layers=config.num_lstm_layers,
-                                batch_first=True, bidirectional=True)
-        self.embedding_dropout = SpatialDropout(config.embed_dropout)
-        self.do_weight_layer_pooling = config.do_weight_layer_pooling
-        if self.do_weight_layer_pooling:
-            self.WLP = WeightedLayerPooling(
-                config.num_hidden_layers,
-                layer_start=config.layer_start, layer_weights=None
-            )
-        self.post_lstm_dropout = nn.Dropout(config.post_lstm_dropout)
-        self.convLayer = ConvolutionLayer(config.hidden_size, config.conv_hid_size, config.dilation, self.conv_dropout)
-        self.cln = LayerNorm(config.hidden_size, config.hidden_size, conditional=True)
-        self.mlp_rel = MLP(self.conv_hid_size * len(config.dilation), config.ffnn_hid_size, dropout=self.mlp_dropout)
-        self.linear = nn.Linear(config.ffnn_hid_size, self.num_labels)
-        self.dropout = nn.Dropout(self.out_dropout)
-        self.mlp1 = MLP(n_in=self.hidden_size, n_out=config.biaffine_size, dropout=self.s_e_dropout)
-        self.mlp2 = MLP(n_in=self.hidden_size, n_out=config.biaffine_size, dropout=self.s_e_dropout)
-        self.biaffine = Biaffine(n_in=config.biaffine_size, n_out=self.num_labels, bias_x=True, bias_y=True)
-        self.init_weights()
-
-    def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, grid_mask2d=None):
-        outputs = self.bert(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            head_mask=None,
-            inputs_embeds=None,
-        )
-        sequence_output = outputs[0]
-        if self.do_weight_layer_pooling:
-            sequence_output = self.WLP(all_hidden_states=outputs[2])
+def read_pseudo(pseudo_file_path):
+    sentences = []
+    sentence_counter = 0
+    with open(pseudo_file_path, encoding="utf-8") as f:
+        lines = f.readlines()
+    current_words = []
+    current_labels = []
+    for row in lines:
+        row = row.rstrip("\n")
+        if row != "":
+            token, label = row[0], row[2:]
+            current_words.append(token)
+            current_labels.append(label)
         else:
-            if self.use_last_n_layers is not None:
-                last_hidden_state = outputs[2]
-                last_hidden_state = torch.stack(last_hidden_state[- self.use_last_n_layers:], dim=-1)
-                last_hidden_state = torch.mean(last_hidden_state, dim=-1)
-                sequence_output = last_hidden_state
-        sequence_output = self.embedding_dropout(sequence_output)
-        if self.do_lstm:
-            sequence_lengths = attention_mask.sum(dim=1)
-            packed_sequence_output = pack_padded_sequence(
-                sequence_output, sequence_lengths.cpu(), batch_first=True, enforce_sorted=False)
-            packed_sequence_output, _ = self.lstm(packed_sequence_output)
-            unpacked_sequence_output, _ = pad_packed_sequence(
-                packed_sequence_output, batch_first=True, total_length=sequence_lengths.max())
-            sequence_output = sequence_output + unpacked_sequence_output
-        sequence_output = self.post_lstm_dropout(sequence_output)
-
-        cln = self.cln(sequence_output.unsqueeze(2), sequence_output)
-        conv_inputs = torch.masked_fill(cln, grid_mask2d.eq(0).unsqueeze(-1).to(input_ids.device), 0.0)
-        conv_outputs = self.convLayer(conv_inputs)
-        conv_outputs = torch.masked_fill(conv_outputs, grid_mask2d.eq(0).unsqueeze(-1).to(input_ids.device),
-                                         0.0)  # (2,16,16,240)
-        ffn_outputs = self.dropout(self.mlp_rel(conv_outputs))
-        ffn_outputs = self.linear(ffn_outputs)
-        gp_logits = self.global_pointer(sequence_output, mask=attention_mask)
-
-        ent_start = self.dropout(self.mlp1(sequence_output))  # (2,16,512)
-        ent_end = self.dropout(self.mlp2(sequence_output))  # (2,16,512)
-
-        biaff_logits = self.biaffine(ent_start, ent_end)
-        logits = (gp_logits + ffn_outputs + biaff_logits) / 3
-        outputs = {}
-        outputs['logits'] = logits
-        return outputs
-
+            if not current_words:
+                continue
+            assert len(current_words) == len(current_labels), "word len doesn't match label length"
+            sentence = {
+                    "id": str(sentence_counter),
+                    "tokens": current_words,
+                    "ner_tags": current_labels
+                }
+            sentence_counter += 1
+            current_words = []
+            current_labels = []
+            sentences.append(sentence)
+    return sentences
 
 ######################################## 数据处理
 class GaiicDataset(DatasetBase):
     keys_to_truncate_on_dynamic_batch = ['input_ids', 'attention_mask', 'token_type_ids', 'labels', 'grid_mask2d']
-
     def __init__(self,
                  data_name,
                  data_dir,
                  data_type,
                  process_piplines,
+                 pseudo_file_path=None,
                  **kwargs):
-        super().__init__(data_name, data_dir, data_type, process_piplines, **kwargs)
+        super().__init__(data_name, data_dir, data_type, process_piplines,**kwargs)
 
     @classmethod
     def get_labels(cls):
@@ -298,13 +259,6 @@ class GaiicDataset(DatasetBase):
                 line = json.loads(line)
                 lines.append(line)
         return lines
-    # def create_examples(self, data, data_type, **kwargs):
-    #     examples = []
-    #     for line in data:
-    #         guid = f"{data_type}-{line['guid']}"
-    #         tokens = line['text']
-    #         labels = line['entities']
-    #         examples.append(dict(guid=guid, tokens=tokens, labels=labels))
     def create_examples(self, data, data_type, **kwargs):
         examples = []
         for line in data:
@@ -312,15 +266,14 @@ class GaiicDataset(DatasetBase):
             tokens = line['tokens']
             labels = line['ner_tags']
             examples.append(dict(guid=guid, tokens=tokens, labels=labels))
-        # if data_type=='train':
-        #     i = 0
-        #     with open('../data/tmp_data/10_folds_data/train.0.aug.jsonl') as fr:
-        #         for line in fr.readlines():
-        #             guid = f"{data_type}-aug-{i}"
-        #             line = json.loads(line)
-        #             examples.append(dict(guid=guid, tokens=line['tokens'], labels=line['entities']))
-        #             i = i+1
-        print("all data size: ",len(examples))
+        # if data_type == 'train':
+        #    pseudo_data = read_pseudo("../data/contest_data/train_data/pseudo_label_data_8w.txt")[:40000]
+        #    for line in pseudo_data:
+        #        guid = f"pseudo-{line['id']}"
+        #        tokens = line['tokens']
+        #        labels = line['ner_tags']
+        #        examples.append(dict(guid=guid, tokens=tokens, labels=labels))
+        print("all data size: ", len(examples))
         return examples
 
     def collate_fn(self, features):
@@ -357,7 +310,6 @@ class ProcessExample2Feature:
     def __call__(self, example):
         tokens = example['tokens']
         labels = example['labels']
-        guid = example['guid']
         ## 处理空格以及异常符号
         new_tokens = []
         for i, word in enumerate(tokens):
@@ -367,32 +319,14 @@ class ProcessExample2Feature:
             else:
                 new_tokens.append(word)
         # 获取实体的span
-        if 'aug' in guid:
-            entity_spans = []
-            for ent in labels:
-                entity_spans.append({  # 左闭右闭
-                    'start_idx': ent[0],
-                    'end_idx': ent[1],
-                    'type': self.label2id[ent[2]],
-                    'entity': "".join(tokens[ent[0]:ent[1] + 1])
-                })
-        else:
-            # entity_spans = []
-            # for _start_idx, _end_idx,_type, _ in labels:
-            #     entity_spans.append({  # 左闭右闭
-            #         'start_idx': _start_idx,
-            #         'end_idx': _end_idx-1,
-            #         'type': self.label2id[_type],
-            #         'entity': "".join(tokens[_start_idx:_end_idx])
-            #     })
-            entity_spans = []
-            for _type, _start_idx, _end_idx in get_entity_biob(labels, None):
-                entity_spans.append({  # 左闭右闭
-                    'start_idx': _start_idx,
-                    'end_idx': _end_idx,
-                    'type': self.label2id[_type],
-                    'entity': "".join(tokens[_start_idx:_end_idx + 1])
-                })
+        entity_spans = []
+        for _type, _start_idx, _end_idx in get_entity_biob(labels, None):
+            entity_spans.append({  # 左闭右闭
+                'start_idx': _start_idx,
+                'end_idx': _end_idx,
+                'type': self.label2id[_type],
+                'entity': "".join(tokens[_start_idx:_end_idx + 1])
+            })
         # 重新生成text
         text = "".join(new_tokens)  # mapping
         token2char_span_mapping = self.tokenizer(text,
@@ -443,13 +377,12 @@ class ProcessExample2Feature:
         return inputs
 
 
-def load_data(data_name, data_dir, data_type, tokenizer, max_sequence_length, do_mask, mask_p, **kwargs):
+def load_data(data_name, data_dir, data_type, tokenizer, max_sequence_length, do_mask, mask_p,pseudo_file_path=None, **kwargs):
     process_piplines = [
         ProcessExample2Feature(
             GaiicDataset.label2id(), tokenizer, max_sequence_length, do_mask, mask_p),
     ]
-    return GaiicDataset(data_name, data_dir, data_type, process_piplines, **kwargs)
-
+    return GaiicDataset(data_name, data_dir, data_type, process_piplines,pseudo_file_path, **kwargs)
 
 def _param_optimizer(params, learning_rate, no_decay, weight_decay):
     _params = [
@@ -461,7 +394,6 @@ def _param_optimizer(params, learning_rate, no_decay, weight_decay):
          'lr': learning_rate},
     ]
     return _params
-
 
 def get_optimizer_grouped_parameters(
         model,
@@ -522,7 +454,7 @@ def get_optimizer(optimizer_grouped_parameters, opts):
 
 def get_loss_fct(opts):
     if opts.loss_type == 'ce':
-        return nn.CrossEntropyLoss()
+        return nn.CrossEntropyLoss(reduction='mean')
     elif opts.loss_type == 'lsr':
         pass
         # return LabelSmoothingCE(eps=opts.lsr_eps)
@@ -550,6 +482,16 @@ def rdrop_loss_fun(p, q, mask=None):
     loss = (p_loss + q_loss) / 2
     return loss
 
+mse =nn.MSELoss()
+def fuzhu_loss(logits,target,mask):
+    y_pred = torch.argmax(logits, -1)
+    y_pred[:, [0, -1]] = 0
+    y_pred[:, :, [0, -1]] = 0
+    y_pred = y_pred[mask]
+    y_true = target[mask]
+    l1 = (y_pred>0).float()
+    l2 = (y_true > 0).float()
+    return mse(l1,l2)
 
 def train(opts, model, tokenizer, train_dataset, dev_dataset, logger):
     """ Train the model """
@@ -660,6 +602,10 @@ def train(opts, model, tokenizer, train_dataset, dev_dataset, logger):
             else:
                 outputs = model(**inputs)
                 loss = loss_fct(outputs['logits'][grid_mask2d], inputs['labels'][grid_mask2d])
+                # fu_loss = fuzhu_loss(outputs['logits'], inputs['labels'],grid_mask2d)
+                # loss = loss+fu_loss
+                # import pdb
+                # pdb.set_trace()
             if opts.device_num > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
             if opts.gradient_accumulation_steps > 1:
@@ -674,7 +620,11 @@ def train(opts, model, tokenizer, train_dataset, dev_dataset, logger):
                 adv_outputs = model(**inputs)
                 loss_adv = loss_fct(adv_outputs['logits'][grid_mask2d], inputs['labels'][grid_mask2d])
                 loss_adv = loss_adv.mean()
-                loss_adv.backward()
+                if opts.fp16:
+                    with amp.scale_loss(loss_adv, optimizer) as adv_scaled_loss:
+                        adv_scaled_loss.backward()
+                else:
+                    loss_adv.backward()
                 fgm.restore()
             if opts.do_pgd:
                 pgd.backup_grad()
@@ -687,13 +637,21 @@ def train(opts, model, tokenizer, train_dataset, dev_dataset, logger):
                         pgd.restore_grad()
                     adv_outputs = model(**inputs)
                     loss_adv = loss_fct(adv_outputs['logits'][grid_mask2d], inputs['labels'][grid_mask2d])
-                    loss_adv.backward()  # 反向传播，并在正常的grad基础上，累加对抗训练的梯度
+                    if opts.fp16:
+                        with amp.scale_loss(loss_adv, optimizer) as adv_scaled_loss:
+                            adv_scaled_loss.backward()
+                    else:
+                        loss_adv.backward()
                 pgd.restore()  # 恢复embedding参
             pbar.step(step, {'loss': loss.item()})
             tr_loss += loss.item()
             if opts.do_awp:
-                if f1 > opts.awp_f1:#806
-                    awp.attack_backward(inputs,loss_fct,grid_mask2d, epoch+1)
+                if opts.awp_epoch>0:
+                    if epoch > opts.awp_epoch:
+                        awp.attack_backward(inputs, loss_fct, grid_mask2d, epoch + 1,opts.fp16)
+                else:
+                    if f1 > opts.awp_f1:#806
+                        awp.attack_backward(inputs,loss_fct,grid_mask2d, epoch+1,opts.fp16)
             if (step + 1) % opts.gradient_accumulation_steps == 0:
                 if opts.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), opts.max_grad_norm)
@@ -733,59 +691,12 @@ def train(opts, model, tokenizer, train_dataset, dev_dataset, logger):
                                           "checkpoint-{}-{}-swa".format(round(swa_result, 5), global_step))
             if not os.path.exists(output_dir_swa) and opts.do_swa:
                 os.makedirs(output_dir_swa)
+            # model_to_save.save_pretrained(output_dir)
             torch.save(swa_model.module.state_dict(), f"{output_dir_swa}/pytorch_model.bin")
         if 'cuda' in str(opts.device):
             torch.cuda.empty_cache()
 
 ## metric计算
-from collections import Counter
-
-class MetricsCalculator2(object):
-    def __init__(self):
-        super().__init__()
-        self.reset()
-
-    def reset(self):
-        self.origins = []
-        self.founds = []
-        self.rights = []
-
-    def compute(self, origin, found, right):
-        recall = 0 if origin == 0 else (right / origin)
-        precision = 0 if found == 0 else (right / found)
-        f1 = 0. if recall + precision == 0 else (2 * precision * recall) / (precision + recall)
-        return recall, precision, f1
-
-    def update(self, y_pred, y_true, logits):
-        y_pred = y_pred.cpu().numpy()
-        y_true = y_true.cpu().numpy()
-        pred = []
-        true = []
-        for b, start, end in zip(*np.where(y_pred > 0)):
-            pred.append((y_pred[b, start, end], start, end))
-        for b, start, end in zip(*np.where(y_true > 0)):
-            true.append((y_true[b, start, end], start, end))
-        self.origins.extend(true)
-        self.founds.extend(pred)
-        self.rights.extend([pre_entity for pre_entity in pred if pre_entity in true])
-
-    def result(self):
-        class_info = {}
-        origin_counter = Counter([x[0] for x in self.origins])
-        found_counter = Counter([x[0] for x in self.founds])
-        right_counter = Counter([x[0] for x in self.rights])
-        for type_, count in origin_counter.items():
-            origin = count
-            found = found_counter.get(type_, 0)
-            right = right_counter.get(type_, 0)
-            recall, precision, f1 = self.compute(origin, found, right)
-            class_info[type_] = {"acc": round(precision, 4), 'recall': round(recall, 4), 'f1': round(f1, 4)}
-        origin = len(self.origins)
-        found = len(self.founds)
-        right = len(self.rights)
-        recall, precision, f1 = self.compute(origin, found, right)
-        return {'acc': precision, 'recall': recall, 'f1': f1}, class_info
-
 class MetricsCalculator(object):
     def __init__(self):
         super().__init__()
@@ -814,45 +725,6 @@ class MetricsCalculator(object):
         Z = len(T)
         f1, precision, recall = 2 * X / (Y + Z), X / Y, X / Z
         return f1, precision, recall
-
-def evaluate2(opts, model, dev_dataset, logger, prefix="", save=False):
-    metric = MetricsCalculator()
-    opts.eval_batch_size = opts.per_gpu_eval_batch_size * max(1, opts.device_num)
-    eval_sampler = SequentialSampler(dev_dataset)
-    eval_dataloader = DataLoader(dev_dataset,
-                                 sampler=eval_sampler,
-                                 batch_size=opts.eval_batch_size,
-                                 collate_fn=dev_dataset.collate_fn)
-    eval_loss = 0.0
-    nb_eval_steps = 0
-    pbar = ProgressBar(n_total=len(eval_dataloader), desc="Evaluating")
-    loss_fct = get_loss_fct(opts)
-    for step, batch in enumerate(eval_dataloader):
-        model.eval()
-        with torch.no_grad():
-            inputs = {key: value.to(opts.device) if key != 'grid_mask2d' else value for key, value in batch.items()}
-            grid_mask2d = inputs['grid_mask2d'].clone()
-            outputs = model(**inputs)
-        tmp_eval_loss = loss_fct(outputs['logits'][grid_mask2d], inputs['labels'][grid_mask2d])
-        logits = outputs['logits']
-        if opts.device_num > 1:
-            tmp_eval_loss = tmp_eval_loss.mean()  # mean() to average on multi-gpu parallel evaluating
-        predict_labels = torch.argmax(logits, -1)
-        # 把predict_label的下三角排除
-        mask = torch.tril(torch.ones_like(predict_labels), diagonal=-1)
-        predict_labels = predict_labels - mask * 1e12
-        eval_loss += tmp_eval_loss.item()
-        nb_eval_steps += 1
-        metric.update(predict_labels, inputs['labels'], logits)
-        pbar.step(step)
-    eval_result, class_info = metric.result()
-    eval_loss = eval_loss / nb_eval_steps
-    logger.info("***** Eval results %s *****", prefix)
-    logger.info(f"  %s = %s", 'f1', str(round(eval_result['f1'], 5)))
-    logger.info(f"  %s = %s", 'acc', str(round(eval_result['acc'], 5)))
-    logger.info(f"  %s = %s", 'recall', str(round(eval_result['recall'], 5)))
-    logger.info(f"  %s = %s", 'loss', str(round(eval_loss, 5)))
-    return eval_result['f1']
 
 def evaluate(opts, model, dev_dataset, logger, prefix="", save=False):
     metric = MetricsCalculator()
@@ -883,14 +755,11 @@ def evaluate(opts, model, dev_dataset, logger, prefix="", save=False):
         predict_labels = predict_labels - mask * 1e12
         eval_loss += tmp_eval_loss.item()
         nb_eval_steps += 1
-        # metric.update(predict_labels, inputs['labels'], logits)
         f1, p, r = metric.get_evaluate_fpr(predict_labels, inputs['labels'],0.0)
         total_f1_ += f1
         total_precision_ += p
         total_recall_ += r
         pbar.step(step)
-
-        # pbar.step(step)
     avg_f1 = total_f1_ / (len(eval_dataloader))
     avg_precision = total_precision_ / (len(eval_dataloader))
     avg_recall = total_recall_ / (len(eval_dataloader))
@@ -903,8 +772,8 @@ def evaluate(opts, model, dev_dataset, logger, prefix="", save=False):
     return  avg_f1
 
 def is_nested(chunk1, chunk2):
-    (s1, e1,_,_,_), (s2, e2,_,_,_) = chunk1, chunk2
-    return (s1 <= s2 and e2 <= e1) or (s2 <= s1 and e1 <= e2)
+    a,b = chunk1, chunk2
+    return min(a[1], b[1]) - max(a[0], b[0]) > 0
 
 def detect_nested(chunks):
     for i, ck1 in enumerate(chunks):
@@ -964,8 +833,13 @@ def predict_one_sample(opts, model, tokens, tokenizer, threshold=0.0, prefix="")
     logits[:, [0, -1]] -= np.inf
     logits[:, :, [0, -1]] -= np.inf
     y_pred = torch.argmax(logits, -1).cpu().numpy()
+    y_pred[:, [0, -1]] = 0
+    y_pred[:, :, [0, -1]] = 0
     entities = []
+
     for b, start, end in zip(*np.where(y_pred > 0)):
+        # if end-start>=20: # 伪标签出错
+        #     continue
         category = y_pred[b, start, end]
         label_logits = logits[b,start,end,category]
         if end - 1 > token2char_span_mapping[-2][-1]:
@@ -974,12 +848,14 @@ def predict_one_sample(opts, model, tokens, tokenizer, threshold=0.0, prefix="")
             # 左闭右闭
             entitie_ = [token2char_span_mapping[start][0], token2char_span_mapping[end][-1] - 1,
                         opts.id2label[category],
-                        text[token2char_span_mapping[start][0]: token2char_span_mapping[end][-1]],
-                        label_logits
+                        text[token2char_span_mapping[start][0]: token2char_span_mapping[end][-1]]
                         ]
             if entitie_[-1] == '':
                 continue
             entities.append(entitie_)
+    # if '可擦钢笔魔力擦暗尖包尖学生专用热可擦刚笔细笔尖小学生三年级男生晶蓝色墨蓝黑色热敏可擦墨囊可擦笔摩擦笔^可擦钢笔【3支纹理' in text:
+    #     import pdb
+    #     pdb.set_trace()
     chunks = copy.deepcopy(entities)
     overlaps = detect_nested2(chunks)
     if len(overlaps) == 0:
@@ -1004,11 +880,8 @@ def predict_one_sample(opts, model, tokens, tokenizer, threshold=0.0, prefix="")
                 chunks.append(ck2)
         chunks = sorted(chunks, key=lambda x: (x[0], x[1]))
         return chunks
-
 MODEL_CLASSES = {
     "nezha": (NeZhaConfig, GlobalPointerNeZha, BertTokenizerFast),
-    "nezhav2": (NeZhaConfig, GlobalPointerNeZhaV2, BertTokenizerFast),
-    "nezhav3": (NeZhaConfig, GlobalPointerNeZhaV3, BertTokenizerFast),
 }
 
 def main():
@@ -1079,12 +952,16 @@ def main():
     group.add_argument('--do_awp', action="store_true")
     group.add_argument('--awp_lr', type=float, default=0.0005)
     group.add_argument('--awp_eps', type=float, default=0.001)
+    group.add_argument('--awp_epoch',default=0,type=int)
     group.add_argument('--awp_f1',default=0.810,type=float)
     group.add_argument('--do_post_swa', action="store_true")
     group.add_argument('--swa_model_dir',default='',type=str)
     group.add_argument('--do_predict_test',action='store_true')
     group.add_argument('--submit_file_path',default='',type=str)
     group.add_argument('--save_best', action="store_true")
+    group.add_argument('--do_pseudo',action='store_true')
+    group.add_argument('--pseudo_data_file',default='',type=str)
+    group.add_argument('--pseudo_label_file', default='', type=str)
     opts = parser.parse_args_from_parser(parser)
     logger = Logger(opts=opts)
     # device
@@ -1124,7 +1001,7 @@ def main():
                                                          rdrop_weight=opts.rdrop_weight,
                                                          train_drop_last=opts.train_drop_last,
                                                          conv_hid_size=opts.conv_hid_size,
-                                                         dilation=[1, 2, 3],
+                                                         dilation=[1, 2,4,1,1],
                                                          ffnn_hid_size=opts.ffnn_hid_size,
                                                          merge_mode=opts.merge_mode,
                                                          biaffine_size=opts.biaffine_size,
@@ -1220,8 +1097,10 @@ def main():
         if not os.path.exists(swa_model_dir):
             os.mkdir(swa_model_dir)
         logger.info(f'Save swa model in: {swa_model_dir}')
-        swa_model_path = os.path.join(swa_model_dir, 'pytorch_model.bin')
-        torch.save(swa_model.state_dict(), swa_model_path)
+        swa_model.save_pretrained(swa_model_dir)
+        #swa_model_path = os.path.join(swa_model_dir, 'pytorch_model.bin')
+        #torch.save(swa_model.state_dict(), swa_model_path)
+
     if opts.do_predict_test:
         from tqdm import tqdm
         model = model_class.from_pretrained(opts.eval_checkpoint_path, config=config)
@@ -1234,10 +1113,6 @@ def main():
                 tokens = list(line)
                 label = len(tokens) * ['O']
                 entitys = predict_one_sample(opts,model,tokens,tokenizer)
-                #import pdb
-                #pdb.set_trace()
-                #predict_results.append([tokens,entitys])
-            #torch.save(predict_results,'xxx.bin')
                 for _preditc in entitys:
                     label[_preditc[0]] = 'B-' + _preditc[2]
                     label[(_preditc[0] + 1): (_preditc[1]+1)] = (_preditc[1] - _preditc[0]) * [('I-' + _preditc[2])]
@@ -1249,8 +1124,29 @@ def main():
                         continue
                     f.write(f'{word} {tag}\n')
                 f.write('\n')
-
-
+    if opts.do_pseudo:
+        model = model_class.from_pretrained(opts.eval_checkpoint_path, config=config)
+        model.to(opts.device)
+        predict_results = []
+        from tqdm import tqdm
+        with open(opts.pseudo_data_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            for line in tqdm(lines):
+                line = line.strip("\n")
+                tokens = list(line)
+                label = len(tokens) * ['O']
+                entitys = predict_one_sample(opts,model,tokens,tokenizer)
+                for _preditc in entitys:
+                    label[_preditc[0]] = 'B-' + _preditc[2]
+                    label[(_preditc[0] + 1): (_preditc[1]+1)] = (_preditc[1] - _preditc[0]) * [('I-' + _preditc[2])]
+                predict_results.append([line, label])
+        with open(opts.pseudo_label_file, 'w', encoding='utf-8') as f:
+            for _result in predict_results:
+                for word, tag in zip(_result[0], _result[1]):
+                    if word == '\n':
+                        continue
+                    f.write(f'{word} {tag}\n')
+                f.write('\n')
 
 
 if __name__ == "__main__":

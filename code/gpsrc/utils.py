@@ -151,7 +151,7 @@ class PGD():
             if param.requires_grad and param.grad is not None:
                 param.grad = self.grad_backup[name]
 
-
+from apex import amp
 class AWP:
     def __init__(
             self,
@@ -173,7 +173,7 @@ class AWP:
         self.backup = {}
         self.backup_eps = {}
 
-    def attack_backward(self, inputs, loss_fct,grid_mask2d,epoch):
+    def attack_backward(self, inputs, loss_fct,grid_mask2d,epoch,fp16=False):
         if (self.adv_lr == 0) or (epoch < self.start_epoch):
             return None
         self._save()
@@ -184,7 +184,11 @@ class AWP:
             adv_loss = loss_fct(adv_outputs['logits'][grid_mask2d], inputs['labels'][grid_mask2d])
             adv_loss = adv_loss.mean()
             self.optimizer.zero_grad()
-            adv_loss.backward()
+            if fp16:
+                with amp.scale_loss(adv_loss, self.optimizer) as adv_scaled_loss:
+                    adv_scaled_loss.backward()
+            else:
+                adv_loss.backward()
         self._restore()
 
     def _attack_step(self):
