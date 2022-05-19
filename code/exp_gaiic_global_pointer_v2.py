@@ -1223,12 +1223,13 @@ def main():
         swa_model_path = os.path.join(swa_model_dir, 'pytorch_model.bin')
         torch.save(swa_model.state_dict(), swa_model_path)
     if opts.do_predict_test:
+        from tqdm import tqdm
         model = model_class.from_pretrained(opts.eval_checkpoint_path, config=config)
         model.to(opts.device)
         predict_results = []
         with open(opts.test_input_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            for line in lines:
+            for line in tqdm(lines, total=len(lines)):
                 line = line.strip("\n")
                 tokens = list(line)
                 label = len(tokens) * ['O']

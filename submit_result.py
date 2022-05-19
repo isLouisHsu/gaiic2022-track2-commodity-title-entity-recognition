@@ -94,11 +94,11 @@
 import os
 import glob
 import json
-from options import Argparser
 
 # WARNING: 统一采用绝对路径！！
 def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
-    model_path="/home/mw/project/best_model",
+    # model_path="/home/mw/project/best_model",
+    model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022051811505", # 0.8176488551464742
     submit_result_file="/home/mw/project/results.txt"
 ):
     model_path = os.path.abspath(model_path)
@@ -146,6 +146,7 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     #     """
     cmd = \
         f"""
+        cd code/
         python exp_gaiic_global_pointer_v2.py \
             --experiment_code=experiment_bert_base_fold0_gp_v2_pre_v62 \
             --task_name=gaiic \
