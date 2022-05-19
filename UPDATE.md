@@ -4,6 +4,11 @@
 
 ## 更新
 
+### 2022/5/8
+1. 线上预训练加微调
+   - `run_pretrain_nezha_v2`、`run_pretrain_nezha_v3`
+   - `experiment_bert_base_fold0_gp_v2_pre_v62`
+
 ### 2022/5/17
 1. 提交线上
    - `nezha-100k-spanv1-datas2v0-lr3e-5-wd0.01-dropout0.5-span35-e6-bs16x2-sinusoidal-biaffine-ploy1_ce2.0-awp1.0-rdrop1.0`，即`gmodel_spancls_2022051617829`，0.8104775463912551

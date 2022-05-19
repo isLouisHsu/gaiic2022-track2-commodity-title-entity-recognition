@@ -103,17 +103,63 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
 ):
     model_path = os.path.abspath(model_path)
     print(model_path); os.system("ls %s" % model_path)
+    # cmd = \
+    #     f"""
+    #     python exp_gaiic_global_pointer_v2.py \
+    #         --experiment_code=experiment_bert_base_fold0_gp_v2_pre_v62 \
+    #         --task_name=gaiic \
+    #         --model_type=nezha \
+    #         --do_lower_case \
+    #         --pretrained_model_path={model_path} \
+    #         --data_dir=./ \
+    #         --output_dir=./ \
+    #         --do_predict_test \
+    #         --test_input_file={path_sample} \
+    #         --eval_checkpoint_path={model_path} \
+    #         --submit_file_path={submit_result_file} \
+    #         --evaluate_during_training \
+    #         --train_max_seq_length=128 \
+    #         --eval_max_seq_length=128 \
+    #         --test_max_seq_length=128 \
+    #         --per_gpu_train_batch_size=16 \
+    #         --per_gpu_eval_batch_size=32 \
+    #         --per_gpu_test_batch_size={batch_size} \
+    #         --gradient_accumulation_steps=1 \
+    #         --learning_rate=3e-5 \
+    #         --other_learning_rate=1e-3 \
+    #         --weight_decay=0.001 \
+    #         --scheduler_type=cosine \
+    #         --base_model_name=bert \
+    #         --warmup_proportion=0.1 \
+    #         --max_grad_norm=1.0 \
+    #         --num_train_epochs=10 \
+    #         --use_rope \
+    #         --do_lstm \
+    #         --num_lstm_layers=2 \
+    #         --adam_epsilon=1e-8 \
+    #         --post_lstm_dropout=0.5 \
+    #         --inner_dim=64 \
+    #         --loss_type=pcl \
+    #         --do_awp \
+    #         --do_rdrop \
+    #         --seed=42
+    #     """
     cmd = \
         f"""
+        python kfold_split_data.py
+        ls /home/mw/temp/10_folds_data/
         python exp_gaiic_global_pointer_v2.py \
             --experiment_code=experiment_bert_base_fold0_gp_v2_pre_v62 \
             --task_name=gaiic \
             --model_type=nezha \
             --do_lower_case \
             --pretrained_model_path={model_path} \
-            --data_dir=./ \
-            --output_dir=./ \
+            --data_dir=/home/mw/temp/10_folds_data/ \
+            --train_input_file=train.all.jsonl \
+            --eval_input_file=dev.0.jsonl \
+            --output_dir=../data/model_data/ \
             --do_predict_test \
+            --save_best \
             --test_input_file={path_sample} \
             --eval_checkpoint_path={model_path} \
             --submit_file_path={submit_result_file} \
@@ -135,13 +181,20 @@ def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
             --num_train_epochs=10 \
             --use_rope \
             --do_lstm \
+            --do_fgm \
             --num_lstm_layers=2 \
             --adam_epsilon=1e-8 \
             --post_lstm_dropout=0.5 \
             --inner_dim=64 \
             --loss_type=pcl \
+            --pcl_epsilon=2.5 \
+            --pcl_alpha=1.5 \
             --do_awp \
+            --awp_f1=0.810 \
+            --awp_lr=0.1 \
             --do_rdrop \
+            --rdrop_weight=0.4 \
+            --rdrop_epoch=1 \
             --seed=42
         """
     print(cmd)

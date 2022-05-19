@@ -1095,13 +1095,14 @@ def main():
     # data processor
     logger.info("initializing data processor")
     tokenizer = tokenizer_class.from_pretrained(opts.pretrained_model_path, do_lower_case=opts.do_lower_case)
-    train_dataset = load_data(opts.train_input_file, opts.data_dir, "train", tokenizer, opts.train_max_seq_length,
-                              do_mask=opts.do_mask, mask_p=opts.mask_p)
-    dev_dataset = load_data(opts.eval_input_file, opts.data_dir, "dev", tokenizer, opts.eval_max_seq_length,
-                            do_mask=False, mask_p=opts.mask_p)
-    opts.num_labels = train_dataset.num_labels
+    if not opts.do_predict_test:
+        train_dataset = load_data(opts.train_input_file, opts.data_dir, "train", tokenizer, opts.train_max_seq_length,
+                                do_mask=opts.do_mask, mask_p=opts.mask_p)
+        dev_dataset = load_data(opts.eval_input_file, opts.data_dir, "dev", tokenizer, opts.eval_max_seq_length,
+                                do_mask=False, mask_p=opts.mask_p)
     opts.label2id = GaiicDataset.label2id()
     opts.id2label = GaiicDataset.id2label()
+    opts.num_labels = len(GaiicDataset.get_labels())
     # model
     logger.info("initializing model and config")
     config, unused_kwargs = config_class.from_pretrained(opts.pretrained_model_path,
