@@ -1358,3 +1358,16 @@ python run_span_classification_v1.py \
     --do_rdrop --rdrop_weight=0.4 \
     --seed=42 \
     --fp16
+
+# python prepare_data.py \
+#     --version=stage2-v3 \
+#     --labeled_files \
+#         ../data/contest_data/train_data/train.txt \
+#     --test_files \
+#         ../data/contest_data/preliminary_test_b/word_per_line_preliminary_B.txt \
+#     --unlabeled_files \
+#         ../data/contest_data/train_data/unlabeled_train_data.txt \
+#     --num_unlabeled_most_similar=3 \
+#     --output_dir=../data/tmp_data/ \
+#     --n_splits=10 \
+#     --seed=42
