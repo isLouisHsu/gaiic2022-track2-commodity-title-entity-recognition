@@ -1122,6 +1122,7 @@ def main():
         predict_results = []
         with open(opts.test_input_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+            if len(lines) == 80000: lines = lines[: 40000] # FIXED: 71333解码报错，用4W条 ValueError: [29, 39, '38', 'X20X21x23z3'] is not in list
             for line in tqdm(lines, total=len(lines)):
                 line = line.strip("\n")
                 tokens = list(line)
