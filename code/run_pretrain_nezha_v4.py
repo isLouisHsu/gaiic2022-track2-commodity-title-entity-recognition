@@ -51,7 +51,7 @@ train_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_dat
 # pre_test_b_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/preliminary_test_b/sample_per_line_preliminary_B.txt'
 pretrain_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data'
 pretrained_model_path = '/home/mw/input/gmodel_pretrainv3_78003124/'
-record_save_path = '/home/mw/project/data/pretrain_model/nezha_pretrain_v3'
+record_save_path = '/home/mw/project/data/pretrain_model/nezha_pretrain_v4'
 # ---
 output_pretrain_data_path = os.path.join(record_save_path, 'pretrain_data.txt')
 mlm_probability = 0.15
@@ -66,7 +66,7 @@ seed = 42
 opts = {
     'task_name': 'gaiic',
     'model_type': 'nezha',
-    'experiment_code': 'v3',
+    'experiment_code': 'v4',
     'output_dir': record_save_path,
     'do_pretrain': True,
 }
