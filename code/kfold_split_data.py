@@ -11,7 +11,7 @@ from packages import seed_everything
 # UNLABLED_FILE_PATH = '../data/contest_data/train_data/unlabeled_train_data.txt'
 # OUTPUT_PATH = '../data/tmp_data/10_folds_data/'
 FILE_PATH = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/train_data/train.txt'
-UNLABLED_FILE_PATH = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/train_data/train.txt'
+UNLABLED_FILE_PATH = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/train_data/unlabeled_train_data.txt'
 OUTPUT_PATH = '/home/mw/temp/10_folds_data/'
 SEED = 42
 K_FOLDS = 10
