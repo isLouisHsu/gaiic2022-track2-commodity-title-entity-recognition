@@ -15,7 +15,7 @@ UNLABLED_FILE_PATH = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_
 OUTPUT_PATH = '/home/mw/temp/10_folds_data/'
 SEED = 42
 K_FOLDS = 10
-NUM_UNLABELED = 40000
+NUM_UNLABELED = 80000
 seed_everything(SEED)
 
 if not os.path.exists(OUTPUT_PATH):

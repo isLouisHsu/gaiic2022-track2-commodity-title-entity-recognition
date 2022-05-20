@@ -4,6 +4,9 @@ import json
 # TRAIN_PATH = "../data/tmp_data/stage2-gp/train.0.jsonl"
 # SEMI_PATH = "../data/model_data/gaiic_nezha_experiment_bert_base_fold0_gp_v2_pre_v73/checkpoint-0.81642-22500/unlabeled_results.txt"
 # OUTPUT_PATH = '../data/tmp_data/stage2-gp/'
+TRAIN_PATH = "/home/mw/temp/10_folds_data/train.all.jsonl"
+SEMI_PATH = "/home/mw/input/TODO:/results_8w.txt"
+OUTPUT_PATH = '/home/mw/temp/10_folds_data/'
 
 with open(TRAIN_PATH, "r") as f:
     examples = [json.loads(line) for line in f.readlines()]
@@ -35,6 +38,7 @@ for row in lines:
         sentences.append(sentence)
 
 examples.extend(sentence)
-with open(os.path.join(OUTPUT_PATH, f"train.0.semi.jsonl"), "w") as f:
+print(f"#train + #semi: {len(examples)}")
+with open(os.path.join(OUTPUT_PATH, f"train.all.8w.jsonl"), "w") as f:
     for example in sentences:
         f.write(json.dumps(example, ensure_ascii=False) + "\n")
