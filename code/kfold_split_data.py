@@ -129,6 +129,7 @@ with open(UNLABLED_FILE_PATH, "r") as f:
 # indices = torch.unique(indices)
 # print(indices.size())
 
+seed_everything(2021)
 np.random.shuffle(unlabeled_texts)
 unlabeled_texts = unlabeled_texts[: NUM_UNLABELED]
 print(f"#unlabeled={len(unlabeled_texts)}")
