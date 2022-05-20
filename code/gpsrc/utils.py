@@ -151,7 +151,11 @@ class PGD():
             if param.requires_grad and param.grad is not None:
                 param.grad = self.grad_backup[name]
 
-from apex import amp
+try:
+    from apex import amp
+except:
+    print("Apex is not available")
+    pass
 class AWP:
     def __init__(
             self,

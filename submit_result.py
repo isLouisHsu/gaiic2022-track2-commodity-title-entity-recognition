@@ -98,7 +98,8 @@ import json
 # WARNING: 统一采用绝对路径！！
 def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     # model_path="/home/mw/project/best_model",
-    model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022051811505", # 0.8176488551464742
+    # model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022051811505", # 0.8176488551464742
+    model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022051916110", # 0.8176612608365892
     submit_result_file="/home/mw/project/results.txt"
 ):
     model_path = os.path.abspath(model_path)
