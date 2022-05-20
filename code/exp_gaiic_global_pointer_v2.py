@@ -808,6 +808,119 @@ def detect_nested2(chunks):
                     nest[-1].append(ck2)
     return nest
 
+# def predict_one_sample(opts, model, tokens, tokenizer, threshold=0.0, prefix=""):
+#     ## 处理空格
+#     new_tokens = []
+#     for i, word in enumerate(tokens):
+#         tokenizer_word = tokenizer.tokenize(word)
+#         if len(tokenizer_word) == 0:
+#             new_tokens.append("^")
+#         else:
+#             new_tokens.append(word)
+#     # 重新生成text
+#     text = "".join(new_tokens)
+#     token2char_span_mapping = tokenizer(text, return_offsets_mapping=True)['offset_mapping']
+#     encoder_txt = tokenizer.encode_plus(text, padding="max_length", return_tensors="pt")
+#     inputs = {
+#         "input_ids": encoder_txt["input_ids"],
+#         'token_type_ids': encoder_txt["token_type_ids"],
+#         'attention_mask': encoder_txt["attention_mask"]
+#     }
+#     model.eval()
+#     with torch.no_grad():
+#         inputs = {key: value.to(opts.device) for key, value in inputs.items()}
+#         logits = model(**inputs)['logits'].cpu()
+#     logits[:, [0, -1]] -= np.inf
+#     logits[:, :, [0, -1]] -= np.inf
+#     y_pred = torch.argmax(logits, -1).cpu().numpy()
+#     y_pred[:, [0, -1]] = 0
+#     y_pred[:, :, [0, -1]] = 0
+#     entities = []
+
+#     for b, start, end in zip(*np.where(y_pred > 0)):
+#         # if end-start>=20: # 伪标签出错
+#         #     continue
+#         category = y_pred[b, start, end]
+#         label_logits = logits[b,start,end,category]
+#         if end - 1 > token2char_span_mapping[-2][-1]:
+#             break
+#         if token2char_span_mapping[start][0] <= token2char_span_mapping[end][-1]:
+#             # 左闭右闭
+#             entitie_ = [token2char_span_mapping[start][0], token2char_span_mapping[end][-1] - 1,
+#                         opts.id2label[category],
+#                         text[token2char_span_mapping[start][0]: token2char_span_mapping[end][-1]]
+#                         ]
+#             if entitie_[-1] == '':
+#                 continue
+#             entities.append(entitie_)
+#     # if '可擦钢笔魔力擦暗尖包尖学生专用热可擦刚笔细笔尖小学生三年级男生晶蓝色墨蓝黑色热敏可擦墨囊可擦笔摩擦笔^可擦钢笔【3支纹理' in text:
+#     #     import pdb
+#     #     pdb.set_trace()
+#     chunks = copy.deepcopy(entities)
+#     overlaps = detect_nested2(chunks)
+#     if len(overlaps) == 0:
+#         return entities
+#     else:
+#         for op in overlaps:
+#             for z in op:
+#                 chunks.pop(chunks.index(z))
+#             ts = list(set([x[2] for x in op]))
+#             if len(op) == 2:
+#                 if len(ts) == 1:
+#                     ls = [x[1] - x[0] + 1 for x in op]
+#                     index = ls.index(min(ls))
+#                     chunks.append(op[index])
+#                 if len(ts) == 2:
+#                     ls = [x[1] - x[0] + 1 for x in op]
+#                     index = ls.index(max(ls))
+#                     chunks.append(op[index])
+#             if len(op) == 3:
+#                 ck1, ck2 = detect_not_nested(op)
+#                 chunks.append(ck1)
+#                 chunks.append(ck2)
+#         chunks = sorted(chunks, key=lambda x: (x[0], x[1]))
+#         return chunks
+
+def drop_overlap_nms(entities):
+    """
+    Parameters
+    ----------
+        entities: List[Tuple[int, int, str, float]]
+
+    Return
+    ------
+        entities: List[Tuple[int, int, str, float]]
+
+    Notes
+    -----
+        - 简化iou计算，仅计算重叠长度；
+        - 未考虑标签，若需对同类别实体去重，则在传入该函数前处理；
+    """
+    if len(entities) == 0: return []
+    
+    X = np.array(entities)
+    starts = X[:, 0].astype(np.int)
+    ends   = X[:, 1].astype(np.int)
+    scores = X[:, 3].astype(np.float)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        # 保留得分最高的一个
+        keep.append(i)
+        # 计算相交区间
+        starts_ = np.maximum(starts[i], starts[order[1:]])
+        ends_   = np.minimum(ends  [i], ends  [order[1:]])
+        # 计算相交长度
+        inter = np.maximum(0, ends_ - starts_)
+        # 保留不相交实体
+        indices = np.where(inter <= 0)[0]
+        order = order[indices + 1]
+    
+    entities = [entities[idx] for idx in keep]
+    return entities
+
 def predict_one_sample(opts, model, tokens, tokenizer, threshold=0.0, prefix=""):
     ## 处理空格
     new_tokens = []
@@ -830,56 +943,38 @@ def predict_one_sample(opts, model, tokens, tokenizer, threshold=0.0, prefix="")
     with torch.no_grad():
         inputs = {key: value.to(opts.device) for key, value in inputs.items()}
         logits = model(**inputs)['logits'].cpu()
-    logits[:, [0, -1]] -= np.inf
-    logits[:, :, [0, -1]] -= np.inf
-    y_pred = torch.argmax(logits, -1).cpu().numpy()
+
+    probas = logits.softmax(dim=-1)
+    probas[:, [0, -1]] = 0.0
+    probas[:, :, [0, -1]] = 0.0
+    y_proba, y_pred = torch.max(probas, -1)
+    y_proba = y_proba.cpu().numpy()
+    y_pred = y_pred.cpu().numpy()
     y_pred[:, [0, -1]] = 0
     y_pred[:, :, [0, -1]] = 0
-    entities = []
 
+    entities = []
     for b, start, end in zip(*np.where(y_pred > 0)):
         # if end-start>=20: # 伪标签出错
         #     continue
         category = y_pred[b, start, end]
-        label_logits = logits[b,start,end,category]
         if end - 1 > token2char_span_mapping[-2][-1]:
             break
         if token2char_span_mapping[start][0] <= token2char_span_mapping[end][-1]:
             # 左闭右闭
-            entitie_ = [token2char_span_mapping[start][0], token2char_span_mapping[end][-1] - 1,
-                        opts.id2label[category],
-                        text[token2char_span_mapping[start][0]: token2char_span_mapping[end][-1]]
-                        ]
+            entitie_ = [
+                token2char_span_mapping[start][0], 
+                token2char_span_mapping[end][-1] - 1,
+                opts.id2label[category],
+                probas[b,start,end,category].item(),
+                text[token2char_span_mapping[start][0]: token2char_span_mapping[end][-1]],
+            ]
             if entitie_[-1] == '':
                 continue
             entities.append(entitie_)
-    # if '可擦钢笔魔力擦暗尖包尖学生专用热可擦刚笔细笔尖小学生三年级男生晶蓝色墨蓝黑色热敏可擦墨囊可擦笔摩擦笔^可擦钢笔【3支纹理' in text:
-    #     import pdb
-    #     pdb.set_trace()
-    chunks = copy.deepcopy(entities)
-    overlaps = detect_nested2(chunks)
-    if len(overlaps) == 0:
-        return entities
-    else:
-        for op in overlaps:
-            for z in op:
-                chunks.pop(chunks.index(z))
-            ts = list(set([x[2] for x in op]))
-            if len(op) == 2:
-                if len(ts) == 1:
-                    ls = [x[1] - x[0] + 1 for x in op]
-                    index = ls.index(min(ls))
-                    chunks.append(op[index])
-                if len(ts) == 2:
-                    ls = [x[1] - x[0] + 1 for x in op]
-                    index = ls.index(max(ls))
-                    chunks.append(op[index])
-            if len(op) == 3:
-                ck1, ck2 = detect_not_nested(op)
-                chunks.append(ck1)
-                chunks.append(ck2)
-        chunks = sorted(chunks, key=lambda x: (x[0], x[1]))
-        return chunks
+    entities = [entity[:3] + entity[4:] for entity in drop_overlap_nms(entities)]
+    return entities
+
 MODEL_CLASSES = {
     "nezha": (NeZhaConfig, GlobalPointerNeZha, BertTokenizerFast),
 }
