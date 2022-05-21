@@ -5,7 +5,7 @@ import json
 # SEMI_PATH = "../data/model_data/gaiic_nezha_experiment_bert_base_fold0_gp_v2_pre_v73/checkpoint-0.81642-22500/unlabeled_results.txt"
 # OUTPUT_PATH = '../data/tmp_data/stage2-gp/'
 TRAIN_PATH = "/home/mw/temp/10_folds_data/train.all.jsonl"
-SEMI_PATH = "/home/mw/input/TODO:/results_8w.txt"
+SEMI_PATH = "/home/mw/input/gdata_pseudo_8w6822/results_8w.txt"
 OUTPUT_PATH = '/home/mw/temp/10_folds_data/'
 
 with open(TRAIN_PATH, "r") as f:
