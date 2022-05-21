@@ -37,7 +37,7 @@ for row in lines:
         current_labels = []
         sentences.append(sentence)
 
-examples.extend(sentence)
+examples.extend(sentences)
 print(f"#train + #semi: {len(examples)}")
 with open(os.path.join(OUTPUT_PATH, f"train.all.8w.jsonl"), "w") as f:
     for example in sentences:
