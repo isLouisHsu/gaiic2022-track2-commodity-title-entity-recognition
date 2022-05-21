@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 
 # TRAIN_PATH = "../data/tmp_data/stage2-gp/train.0.jsonl"
@@ -7,6 +8,9 @@ import json
 TRAIN_PATH = "/home/mw/temp/10_folds_data/train.all.jsonl"
 SEMI_PATH = "/home/mw/input/gdata_pseudo_8w6822/results_8w.txt"
 OUTPUT_PATH = '/home/mw/temp/10_folds_data/'
+
+if len(sys.argv) == 2:
+    SEMI_PATH = sys.argv
 
 with open(TRAIN_PATH, "r") as f:
     examples = [json.loads(line) for line in f.readlines()]
