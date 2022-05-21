@@ -40,5 +40,5 @@ for row in lines:
 examples.extend(sentences)
 print(f"#train + #semi: {len(examples)}")
 with open(os.path.join(OUTPUT_PATH, f"train.all.8w.jsonl"), "w") as f:
-    for example in sentences:
+    for example in examples:
         f.write(json.dumps(example, ensure_ascii=False) + "\n")
