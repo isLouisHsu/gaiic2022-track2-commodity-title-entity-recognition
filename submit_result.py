@@ -99,7 +99,9 @@ import json
 def pred_BIO(path_word: str, path_sample: str, batch_size: int = 1,
     # model_path="/home/mw/project/best_model",
     # model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022051811505", # 0.8176488551464742
-    model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022051916110", # 0.8176612608365892
+    # model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022051916110", # 0.8176612608365892
+    # model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022052133414", # 0.8170789177954735
+    model_path="/home/mw/project/data/best_model/gmodel_gpv2_2022052125903", # 0.8173645640130256
     submit_result_file="/home/mw/project/results.txt"
 ):
     model_path = os.path.abspath(model_path)
