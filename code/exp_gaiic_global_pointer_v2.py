@@ -832,6 +832,7 @@ def predict_one_sample(opts, model, tokens, tokenizer, threshold=0.0, prefix="",
         logits = model(**inputs)['logits'].cpu()
     if model_extra is not None:
         for extra in model_extra:
+            extra.eval()
             with torch.no_grad():
                 logits += extra(**inputs)['logits'].cpu()
         logits = logits / float(len(model_extra) + 1)
