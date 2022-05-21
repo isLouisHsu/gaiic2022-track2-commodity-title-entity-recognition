@@ -10,7 +10,7 @@ SEMI_PATH = "/home/mw/input/gdata_pseudo_8w6822/results_8w.txt"
 OUTPUT_PATH = '/home/mw/temp/10_folds_data/'
 
 if len(sys.argv) == 2:
-    SEMI_PATH = sys.argv
+    SEMI_PATH = sys.argv[1]
 
 with open(TRAIN_PATH, "r") as f:
     examples = [json.loads(line) for line in f.readlines()]
