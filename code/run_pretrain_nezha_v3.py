@@ -45,13 +45,21 @@ kongge2str = '^'
 # pretrained_model_path = '../data/pretrain_model/checkpoint-33000'
 # record_save_path = '../data/submission'
 # ---
-train_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/train_data/train.txt'
-# unlabeled_train_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/train_data/unlabeled_train_data.txt'
-# pre_test_a_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/preliminary_test_a/sample_per_line_preliminary_A.txt'
-# pre_test_b_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/preliminary_test_b/sample_per_line_preliminary_B.txt'
-pretrain_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data'
-pretrained_model_path = '/home/mw/input/gmodel_pretrainv2_3600027674/'
-record_save_path = '/home/mw/project/data/pretrain_model/nezha_pretrain_v3'
+# train_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/train_data/train.txt'
+# # unlabeled_train_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/train_data/unlabeled_train_data.txt'
+# # pre_test_a_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/preliminary_test_a/sample_per_line_preliminary_A.txt'
+# # pre_test_b_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data/preliminary_test_b/sample_per_line_preliminary_B.txt'
+# pretrain_data_path = '/home/mw/input/gaiic_contest8627/gaiic2022_track2_contest_data/contest_data'
+# pretrained_model_path = '/home/mw/input/gmodel_pretrainv2_3600027674/'
+# record_save_path = '/home/mw/project/data/pretrain_model/nezha_pretrain_v3'
+# ---
+train_data_path = '/home/mw/project/data/contest_data/train_data/train.txt'
+# unlabeled_train_data_path = '/home/mw/project/data/contest_data/train_data/unlabeled_train_data.txt'
+# pre_test_a_data_path = '/home/mw/project/data/contest_data/preliminary_test_a/sample_per_line_preliminary_A.txt'
+# pre_test_b_data_path = '/home/mw/project/data/contest_data/preliminary_test_b/sample_per_line_preliminary_B.txt'
+pretrain_data_path = '/home/mw/project/data/contest_data/'
+pretrained_model_path = '/home/mw/temp/nezha_pretrain_v2/checkpoint-36000/'
+record_save_path = '/home/mw/temp/nezha_pretrain_v3'
 # ---
 output_pretrain_data_path = os.path.join(record_save_path, 'pretrain_data.txt')
 mlm_probability = 0.15
